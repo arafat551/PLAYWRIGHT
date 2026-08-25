@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>TABLEAU DE BORD</h1>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_projects }}</div>
+        <div class="stat-label">Projets</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ total_tests }}</div>
+        <div class="stat-label">Tests executes</div>
+    </div>
+    <div class="stat-card stat-success">
+        <div class="stat-number">{{ success_rate }}%</div>
+        <div class="stat-label">Reussite</div>
+    </div>
+    <div class="stat-card stat-danger">
+        <div class="stat-number">{{ fail_rate }}%</div>
+        <div class="stat-label">Echecs</div>
+    </div>
+</div>
+
+{% if last_test %}
+<div class="info-banner">
+    Dernier test : <strong>{{ last_test.project_name }}</strong> - {{ last_test.finished_at }}
+</div>
+{% endif %}
+
+{% if total_tests > 0 %}
+<div class="charts-grid">
+    <div class="card chart-card">
+        <h2>Repartition des resultats</h2>
+        <canvas id="chartStatus" height="220"></canvas>
+    </div>
+    <div class="card chart-card">
+        <h2>Resultats par projet</h2>
+        <canvas id="chartProjects" height="220"></canvas>
+    </div>
+</div>
+
+{% if chart_trend_labels %}
+<div class="card chart-card">
+    <h2>Evolution du taux de reussite</h2>
+    <canvas id="chartTrend" height="90"></canvas>
+</div>
+{% endif %}
+{% endif %}
+
+{% if recent_tests %}
+<div class="card">
+    <h2>Tests recents</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Projet</th>
+                <th>Date</th>
+                <th>Lance par</th>
+                <th>Statut</th>
+                <th>Tests</th>
+                <th>Pass</th>
+                <th>Fail</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in recent_tests %}
+            <tr>
+                <td>{{ t.project_name }}</td>
+                <td>{{ t.started_at }}</td>
+                <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+                <td>{{ t.total }}</td>
+                <td class="text-success">{{ t.passed }}</td>
+                <td class="text-danger">{{ t.failed }}</td>
+                <td class="cell-actions">
+                    {% if t.status == 'completed' %}
+                    <a href="{{ url_for('report_detail', tid=t.id) }}" class="icon-btn" title="Voir le rapport">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </a>
+                    {% elif t.status in ('running', 'waiting_otp', 'exploring') %}
+                    <a href="{{ url_for('test_view', tid=t.id) }}" class="icon-btn" title="Suivre le test">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    </a>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if total_tests > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const statusData = {{ chart_status | tojson }};
+
+new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+        labels: ['PASS', 'FAIL', 'WARNING', 'SKIPPED'],
+        datasets: [{
+            data: [statusData.PASS, statusData.FAIL, statusData.WARNING, statusData.SKIPPED],
+            backgroundColor: ['#16a34a', '#dc2626', '#d97706', '#9ca3af'],
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } }
+    }
+});
+
+new Chart(document.getElementById('chartProjects'), {
+    type: 'bar',
+    data: {
+        labels: {{ chart_proj_labels | tojson }},
+        datasets: [
+            { label: 'PASS', data: {{ chart_proj_pass | tojson }}, backgroundColor: '#16a34a' },
+            { label: 'FAIL', data: {{ chart_proj_fail | tojson }}, backgroundColor: '#dc2626' },
+            { label: 'WARNING', data: {{ chart_proj_warn | tojson }}, backgroundColor: '#d97706' },
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } }
+    }
+});
+
+{% if chart_trend_labels %}
+new Chart(document.getElementById('chartTrend'), {
+    type: 'line',
+    data: {
+        labels: {{ chart_trend_labels | tojson }},
+        datasets: [{
+            label: 'Taux de reussite (%)',
+            data: {{ chart_trend_values | tojson }},
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            fill: true,
+            tension: 0.3
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: { y: { min: 0, max: 100 } },
+        plugins: { legend: { display: false } }
+    }
+});
+{% endif %}
+</script>
+{% endif %}
+{% endblock %}

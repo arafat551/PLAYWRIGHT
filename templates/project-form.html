@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifier' if editing else 'Nouveau' }} projet{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ 'Modifier le projet' if editing else 'Nouveau projet' }}</h1>
+</div>
+
+<div class="card form-card">
+    <form method="POST">
+        <label>Nom du projet *</label>
+        <input type="text" name="name" required value="{{ project.name if project else '' }}" placeholder="Ex: COBRA, KPrimeStore...">
+
+        <label>URL de l'application *</label>
+        <input type="url" name="url" required value="{{ project.url if project else '' }}" placeholder="https://">
+
+        <label>Email de connexion</label>
+        <input type="email" name="email" value="{{ project.email if project else '' }}" placeholder="email@exemple.com">
+
+        <label>Mot de passe</label>
+        <input type="password" name="password" {{ '' if editing else 'required' }} placeholder="{{ 'Laisser vide pour conserver' if editing else '********' }}">
+
+        <label>Type d'authentification</label>
+        <select name="auth_type">
+            <option value="simple" {{ 'selected' if project and project.auth_type == 'simple' }}>Simple</option>
+            <option value="2fa" {{ 'selected' if project and project.auth_type == '2fa' }}>2FA / OTP</option>
+            <option value="none" {{ 'selected' if project and project.auth_type == 'none' }}>Aucune authentification</option>
+        </select>
+
+        <label>Commentaires / Instructions supplementaires</label>
+        <textarea name="comments" rows="4" placeholder="Ex: Ne pas tester les paiements reels...">{{ project.comments if project else '' }}</textarea>
+
+        <div class="form-actions">
+            <a href="{{ url_for('projects') }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

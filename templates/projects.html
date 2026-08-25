@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Projets{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>PROJETS</h1>
+    <a href="{{ url_for('project_new') }}" class="btn-primary">+ Ajouter un projet</a>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Projet</th>
+                <th>URL</th>
+                <th>Authentification</th>
+                <th>Dernier test</th>
+                <th>Tests</th>
+                <th>Reussite</th>
+                <th>Statut</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in projects %}
+            <tr>
+                <td><strong>{{ p.name }}</strong></td>
+                <td class="text-truncate">{{ p.url }}</td>
+                <td>{{ p.auth_type }}</td>
+                <td>{{ p.last_test_date or '-' }}</td>
+                <td>{{ p.test_count }}</td>
+                <td>
+                    {% if p.total_count > 0 %}
+                        {{ ((p.pass_count / p.total_count) * 100)|round }}%
+                    {% else %}-{% endif %}
+                </td>
+                <td><span class="badge badge-{{ p.status }}">{{ p.status }}</span></td>
+                <td class="cell-actions">
+                    <a href="{{ url_for('project_detail', pid=p.id) }}" class="icon-btn icon-view" title="Visualiser">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </a>
+                    <a href="{{ url_for('project_edit', pid=p.id) }}" class="icon-btn icon-edit" title="Modifier">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                    </a>
+                    {% if p.status == 'active' %}
+                    <button class="icon-btn icon-toggle" title="Desactiver" onclick="toggleProject({{ p.id }})">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                    </button>
+                    {% else %}
+                    <button class="icon-btn icon-activate" title="Reactiver" onclick="toggleProject({{ p.id }})">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
+                    {% endif %}
+                    <button class="icon-btn icon-delete" title="Supprimer" onclick="deleteProject({{ p.id }})">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not projects %}
+            <tr><td colspan="8" class="text-center">Aucun projet</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function toggleProject(id) {
+    fetch('/projects/' + id + '/toggle', {method: 'POST'})
+        .then(r => r.json()).then(d => location.reload());
+}
+function deleteProject(id) {
+    if (confirm('Voulez-vous vraiment supprimer ce projet ?')) {
+        fetch('/projects/' + id + '/delete', {method: 'POST'})
+            .then(() => location.href = '/projects');
+    }
+}
+</script>
+{% endblock %}

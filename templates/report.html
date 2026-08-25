@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Rapport {{ test.project_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>RAPPORT QA</h1>
+    <div>
+        <a href="{{ url_for('project_detail', pid=test.project_id) }}" class="btn-secondary">Retour au projet</a>
+        <a href="{{ url_for('reports') }}" class="btn-secondary">Tous les rapports</a>
+    </div>
+</div>
+
+<div class="report-header card">
+    <div class="report-meta">
+        <h2>{{ test.project_name }}</h2>
+        <p class="text-muted">Date : {{ test.finished_at }} &middot; Test #{{ test.id }}</p>
+        {% if test.created_by %}
+        <p class="text-muted">Lance par : <strong>{{ test.created_by }}</strong></p>
+        {% endif %}
+    </div>
+    {% set pct = ((test.passed / test.total) * 100)|round if test.total > 0 else 0 %}
+    <div class="report-score">
+        <div class="score-circle {% if pct >= 80 %}score-good{% elif pct >= 50 %}score-mid{% else %}score-bad{% endif %}">
+            <span>{{ pct }}%</span>
+        </div>
+        <span class="text-muted">Taux de reussite</span>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card stat-success">
+        <div class="stat-number">{{ test.passed }}</div>
+        <div class="stat-label">PASS</div>
+    </div>
+    <div class="stat-card stat-danger">
+        <div class="stat-number">{{ test.failed }}</div>
+        <div class="stat-label">FAIL</div>
+    </div>
+    <div class="stat-card stat-warning">
+        <div class="stat-number">{{ test.warning }}</div>
+        <div class="stat-label">WARNING</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ test.skipped }}</div>
+        <div class="stat-label">SKIPPED</div>
+    </div>
+</div>
+
+{% if results %}
+{% if page_statuses %}
+<div class="card">
+    <h2>Statut HTTP des pages</h2>
+    <div class="http-grid">
+        {% for ps in page_statuses %}
+        <div class="http-item">
+            <span class="http-code http-{% if ps.status >= 200 and ps.status < 300 %}ok{% elif ps.status >= 300 and ps.status < 400 %}redirect{% elif ps.status >= 400 %}error{% else %}unknown{% endif %}">
+                {{ ps.status if ps.status else 'N/A' }}
+            </span>
+            <span class="http-name">{{ ps.name }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="charts-grid">
+    <div class="card chart-card">
+        <h2>Repartition des resultats</h2>
+        <canvas id="chartStatus" height="220"></canvas>
+    </div>
+    <div class="card chart-card">
+        <h2>Resultats par module</h2>
+        <canvas id="chartModules" height="220"></canvas>
+    </div>
+</div>
+
+{% if severity_counts.CRITICAL or severity_counts.MAJOR or severity_counts.MINOR %}
+<div class="card">
+    <h2>Anomalies par severite</h2>
+    <div class="severity-row">
+        <span class="sev sev-critical">CRITICAL : {{ severity_counts.CRITICAL }}</span>
+        <span class="sev sev-major">MAJOR : {{ severity_counts.MAJOR }}</span>
+        <span class="sev sev-minor">MINOR : {{ severity_counts.MINOR }}</span>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Detail par module ({{ module_stats|length }})</h2>
+    {% for ms in module_stats %}
+    {% set mod_pct = ((ms.pass / ms.total) * 100)|round if ms.total > 0 else 0 %}
+    <details class="module-block" {% if loop.first %}open{% endif %}>
+        <summary>
+            <span class="module-title">{{ ms.name }}</span>
+            <span class="module-counts">
+                <span class="text-success">{{ ms.pass }} PASS</span> /
+                <span class="text-danger">{{ ms.fail }} FAIL</span> /
+                <span class="text-warning">{{ ms.warning }} WARN</span>
+            </span>
+            <span class="module-pct">{{ mod_pct }}%</span>
+        </summary>
+        <div class="progress-bar">
+            <div class="progress-fill progress-pass" style="width: {{ (ms.pass / ms.total * 100) | round(1) if ms.total else 0 }}%"></div>
+            <div class="progress-fill progress-warn" style="width: {{ (ms.warning / ms.total * 100) | round(1) if ms.total else 0 }}%"></div>
+            <div class="progress-fill progress-fail" style="width: {{ (ms.fail / ms.total * 100) | round(1) if ms.total else 0 }}%"></div>
+        </div>
+
+        {% for r in modules[ms.name] %}
+        <div class="result-item">
+            <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+            <span class="result-func">{{ r.function_name }}</span>
+            {% if r.http_status %}
+            <span class="http-code http-{% if r.http_status >= 200 and r.http_status < 300 %}ok{% elif r.http_status >= 300 and r.http_status < 400 %}redirect{% elif r.http_status >= 400 %}error{% else %}unknown{% endif %}">{{ r.http_status }}</span>
+            {% endif %}
+        </div>
+        {% if r.status == 'FAIL' %}
+        <div class="fail-detail">
+            <p><strong>Attendu :</strong> {{ r.expected }}</p>
+            <p><strong>Obtenu :</strong> {{ r.obtained }}</p>
+            {% if r.severity %}<p><strong>Severite :</strong> {{ r.severity }}</p>{% endif %}
+            {% if r.screenshot %}
+            <a href="{{ r.screenshot }}" target="_blank" class="screenshot-link">
+                <img src="{{ r.screenshot }}" alt="Capture" class="screenshot-thumb">
+                Voir la capture
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </details>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card text-center">
+    <p>Aucun resultat enregistre pour ce test.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if results %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+        labels: ['PASS', 'FAIL', 'WARNING', 'SKIPPED'],
+        datasets: [{
+            data: [{{ test.passed }}, {{ test.failed }}, {{ test.warning }}, {{ test.skipped }}],
+            backgroundColor: ['#16a34a', '#dc2626', '#d97706', '#9ca3af'],
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } }
+    }
+});
+
+new Chart(document.getElementById('chartModules'), {
+    type: 'bar',
+    data: {
+        labels: {{ module_stats | map(attribute='name') | list | tojson }},
+        datasets: [
+            { label: 'PASS', data: {{ module_stats | map(attribute='pass') | list | tojson }}, backgroundColor: '#16a34a' },
+            { label: 'FAIL', data: {{ module_stats | map(attribute='fail') | list | tojson }}, backgroundColor: '#dc2626' },
+            { label: 'WARNING', data: {{ module_stats | map(attribute='warning') | list | tojson }}, backgroundColor: '#d97706' },
+            { label: 'SKIPPED', data: {{ module_stats | map(attribute='skipped') | list | tojson }}, backgroundColor: '#9ca3af' },
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

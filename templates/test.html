@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Test #{{ test.id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>
+        {% if test.status == 'exploring' or test.status == 'explored' %}
+        EXPLORATION EN COURS
+        {% else %}
+        TEST EN COURS
+        {% endif %}
+    </h1>
+    <a href="{{ url_for('project_detail', pid=test.project_id) }}" class="btn-secondary">Retour au projet</a>
+</div>
+
+<div class="card">
+    <p><strong>Projet :</strong> {{ test.project_name }}</p>
+    <p><strong>Demarre a :</strong> {{ test.started_at }}</p>
+
+    <div class="test-status">
+        <span class="status-dot {{ test.status }}"></span>
+        Statut :
+        {% if test.status == 'running' %}Test en cours...
+        {% elif test.status == 'exploring' %}Exploration des pages du systeme...
+        {% elif test.status == 'explored' %}Exploration terminee - choisissez les modules a tester
+        {% elif test.status == 'waiting_otp' %}En attente OTP...
+        {% elif test.status == 'cancel_requested' %}Arret en cours...
+        {% elif test.status == 'completed' %}Termine
+        {% elif test.status == 'failed' %}Echoue
+        {% elif test.status == 'cancelled' %}Annule
+        {% else %}{{ test.status }}{% endif %}
+    </div>
+
+    <div class="stats-inline">
+        <div><strong>{{ 'Pages decouvertes' if test.status in ('exploring', 'explored') else 'Tests executes' }} :</strong> {{ test.total }}</div>
+        <div class="text-success"><strong>PASS :</strong> {{ test.passed }}</div>
+        <div class="text-danger"><strong>FAIL :</strong> {{ test.failed }}</div>
+        <div class="text-warning"><strong>WARNING :</strong> {{ test.warning }}</div>
+        <div><strong>SKIPPED :</strong> {{ test.skipped }}</div>
+    </div>
+</div>
+
+{% if test.status in ('running', 'exploring', 'waiting_otp', 'cancel_requested') %}
+<div class="card card-stop">
+    <form method="POST" action="{{ url_for('test_cancel', tid=test.id) }}"
+          onsubmit="return confirm('Voulez-vous vraiment arreter ce test ?');">
+        <button type="submit" class="btn-stop">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            ARRETER LE TEST
+        </button>
+    </form>
+</div>
+{% endif %}
+
+{% if test.status == 'waiting_otp' %}
+<div class="card card-otp">
+    <h2>Une authentification 2FA est requise</h2>
+    <form method="POST" action="{{ url_for('test_otp', tid=test.id) }}">
+        <label>Code OTP</label>
+        <input type="text" name="otp_code" required placeholder="_ _ _ _ _ _" maxlength="10">
+        <button type="submit" class="btn-primary">VALIDER ET CONTINUER</button>
+    </form>
+</div>
+{% endif %}
+
+{% if test.status == 'explored' %}
+<div class="card card-next">
+    <h2>Etape suivante</h2>
+    <p>L'application a ete parcourue et <strong>{{ test.total }} page(s)</strong> ont ete decouvertes avec leurs boutons et actions.</p>
+    <a href="{{ url_for('project_modules', pid=test.project_id) }}" class="btn-primary btn-lg">
+        CHOISIR LES ACTIONS A TESTER
+    </a>
+</div>
+{% endif %}
+
+{% if test.status in ('running', 'exploring') %}
+<script>setTimeout(() => location.reload(), 3000);</script>
+{% endif %}
+
+{% if results %}
+<div class="card">
+    <h2>Resultats en temps reel</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Module</th><th>Fonction</th><th>Statut</th><th>Attendu</th><th>Obtenu</th></tr>
+        </thead>
+        <tbody>
+            {% for r in results %}
+            <tr>
+                <td>{{ r.module }}</td>
+                <td>{{ r.function_name }}</td>
+                <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+                <td>{{ r.expected }}</td>
+                <td>{{ r.obtained }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if test.status == 'completed' %}
+<a href="{{ url_for('report_detail', tid=test.id) }}" class="btn-primary">VOIR LE RAPPORT COMPLET</a>
+{% endif %}
+{% endblock %}
