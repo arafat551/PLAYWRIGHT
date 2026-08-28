@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Projets - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            </span>
+            PROJETS
+        </h1>
+        <div class="page-subtitle">Applications suivies par le moteur de tests</div>
+    </div>
+    <a href="{{ url_for('project_new') }}" class="btn-primary">+ Ajouter un projet</a>
+</div>
+
+<div class="card">
+    <div class="table-scroll">
+    <table class="data-table" id="projectsTable" data-sortable>
+        <thead>
+            <tr>
+                <th>Projet</th><th>URL</th><th>Auth</th><th>Environnement</th>
+                <th>Dernier test</th><th>Réussite</th><th>Statut</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in projects %}
+            <tr>
+                <td class="text-truncate">{{ p.name }}</td>
+                <td class="text-truncate"><a href="{{ p.url }}" target="_blank">{{ p.url }}</a></td>
+                <td>{{ {"none":"Aucune","simple":"Simple","2fa":"2FA"}.get(p.auth_type, p.auth_type) }}</td>
+                <td>{{ p.environment }}</td>
+                <td>{{ (p.last_test_date or '-')[:16] }}</td>
+                <td>
+                    {% if p.total_count and p.total_count > 0 %}
+                        {{ ((p.pass_count / p.total_count) * 100)|round(0)|int }}%
+                    {% else %}-{% endif %}
+                </td>
+                <td><span class="badge badge-{{ 'active' if p.status=='active' else 'disabled' }}">{{ p.status }}</span></td>
+                <td class="cell-actions">
+                    <a class="icon-btn icon-view" title="Visualiser" href="{{ url_for('project_detail', pid=p.id) }}">👁</a>
+                    <a class="icon-btn icon-edit" title="Modifier" href="{{ url_for('project_edit', pid=p.id) }}">✏</a>
+                    <form class="inline-form" method="POST" action="{{ url_for('project_toggle', pid=p.id) }}">
+                        <button class="icon-btn icon-toggle {{ 'icon-activate' if p.status=='disabled' }}" title="{{ 'Désactiver' if p.status=='active' else 'Activer' }}">
+                            ⏸
+                        </button>
+                    </form>
+                    <form class="inline-form" method="POST" action="{{ url_for('project_delete', pid=p.id) }}"
+                          onsubmit="return confirm('Supprimer ce projet ?')">
+                        <button class="icon-btn icon-delete" title="Supprimer">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-muted text-center">Aucun projet. Créez en un.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tables.js') }}"></script>
+{% endblock %}

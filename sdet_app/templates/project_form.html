@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifier' if editing else 'Ajouter' }} un projet - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+            {{ 'Modifier le projet' if editing else 'Ajouter un projet' }}
+        </h1>
+        <div class="page-subtitle">{{ 'Ajustez la configuration de votre projet' if editing else 'Connectez une application au moteur de tests' }}</div>
+    </div>
+</div>
+
+<div class="card form-card">
+    <form method="POST">
+        <label>Nom du projet *</label>
+        <input type="text" name="name" required value="{{ project.name if project else '' }}">
+
+        <label>URL *</label>
+        <input type="url" name="url" required value="{{ project.url if project else '' }}" placeholder="https://mon-app.example.com">
+
+        <label>Email</label>
+        <input type="email" name="email" value="{{ project.email if project else '' }}">
+
+        <label>Mot de passe</label>
+        <input type="password" name="password" value="" placeholder="{{ 'Laisser vide pour conserver' if editing else '********' }}">
+
+        <label>Type d'authentification</label>
+        <select name="auth_type">
+            <option value="simple" {{ 'selected' if project and project.auth_type=='simple' else '' }}>Simple</option>
+            <option value="none" {{ 'selected' if project and project.auth_type=='none' else '' }}>Aucune</option>
+            <option value="2fa" {{ 'selected' if project and project.auth_type=='2fa' else '' }}>2FA / OTP</option>
+        </select>
+
+        <label>Environnement</label>
+        <select name="environment">
+            {% for e in ['DEV','TEST','STAGING','PRODUCTION'] %}
+            <option value="{{ e }}" {{ 'selected' if project and project.environment==e else '' }}>{{ e }}</option>
+            {% endfor %}
+        </select>
+
+        <label>Commentaires / Instructions QA</label>
+        <textarea name="comments" rows="4" placeholder="Tester tous les modules. Ne pas effectuer de paiement réel. Ne pas supprimer les utilisateurs existants...">{{ project.comments if project else '' }}</textarea>
+
+        <div class="form-actions">
+            <a href="{{ url_for('projects') }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

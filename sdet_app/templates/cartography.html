@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Cartographie - {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>
+            </span>
+            CARTOGRAPHIE
+        </h1>
+        <div class="page-subtitle">{{ project.name }} — pages et actions découvertes par l'explorateur</div>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Retour</a>
+        <a href="{{ url_for('project_select', pid=project.id) }}" class="btn-primary">Choisir les tests</a>
+    </div>
+</div>
+
+{% for url, g in by_url.items() %}
+<div class="card">
+    <h2>{{ g.page.name if g.page else g.actions[0].page_name if g.actions else 'Page' }}
+        <span class="text-muted" style="font-weight:400">- {{ url }}</span></h2>
+    {% if g.page %}<p class="text-muted text-small">HTTP : {{ g.page.last_status or 'inconnu' }}</p>{% endif %}
+
+    {% if g.actions %}
+        {% set buttons = g.actions | selectattr('action_type','equalto','button') | list %}
+        {% set searches = g.actions | selectattr('action_type','equalto','search') | list %}
+        {% set forms = g.actions | selectattr('action_type','equalto','form') | list %}
+        {% set tables = g.actions | selectattr('action_type','equalto','table') | list %}
+
+        {% if buttons %}
+        <h3>Boutons</h3>
+        <p>{% for b in buttons %}<span class="step">{{ b.label }}</span> {% endfor %}</p>
+        {% endif %}
+
+        {% if searches %}
+        <h3>Recherche</h3>
+        <p>{% for s in searches %}<span class="step">{{ s.label }}</span> {% endfor %}</p>
+        {% endif %}
+
+        {% if forms %}
+        <h3>Formulaires</h3>
+        <p>{% for f in forms %}<span class="step">{{ f.label }}</span> {% endfor %}</p>
+        {% endif %}
+
+        {% for t in tables %}
+        <h3>Table : {{ t.label }}</h3>
+        {% if t.row_actions %}
+        <h4>Actions ligne :</h4>
+        <p>{% for ra in t.row_actions %}<span class="step">{{ ra }}</span> {% endfor %}</p>
+        {% endif %}
+        {% endfor %}
+    {% else %}
+    <p class="text-muted">Aucune action détectée sur cette page.</p>
+    {% endif %}
+</div>
+{% else %}
+<div class="info-banner">Aucune exploration disponible. Lancez une exploration depuis la fiche projet.</div>
+{% endfor %}
+{% endblock %}

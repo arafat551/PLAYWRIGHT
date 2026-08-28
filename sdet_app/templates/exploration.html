@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Exploration - {{ test.project_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+            </span>
+            EXPLORATION EN COURS
+        </h1>
+        <div class="page-subtitle">{{ test.project_name }} — cartographie automatique de l'application</div>
+    </div>
+    <div class="run-actions">
+        <a class="btn-secondary" href="{{ url_for('project_detail', pid=test.project_id) }}">Retour au projet</a>
+        <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
+            <button class="btn-stop">Arrêter l'exploration</button>
+        </form>
+    </div>
+</div>
+
+<div class="test-status">
+    <span class="status-dot {{ test.status }}"></span>
+    <span class="badge badge-{{ test.status }}">{{ test.status }}</span>
+    <span>Pages découvertes : {{ test.total }}</span>
+</div>
+
+<div class="card">
+    <div class="progress-bar">
+        <div class="progress-fill progress-pass" style="width:100%"></div>
+    </div>
+    <p class="text-muted">L'exploration analyse l'application du haut vers le bas pour recenser les boutons, formulaires, recherches et tableaux. Les résultats sont disponibles dans la cartographie une fois terminée.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+setInterval(function(){
+    fetch(location.href, {headers:{'Accept':'text/html'}})
+        .then(r=>r.text())
+        .then(()=>{ location.reload(); });
+}, 4000);
+</script>
+{% endblock %}
