@@ -98,6 +98,37 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT DEFAULT '',
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS test_modules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS test_functionalities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    path TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (module_id) REFERENCES test_modules(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS test_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    functionality_id INTEGER NOT NULL,
+    step_order INTEGER DEFAULT 0,
+    description TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (functionality_id) REFERENCES test_functionalities(id) ON DELETE CASCADE
+);
 """
 
 
@@ -121,6 +152,20 @@ def init_db(path=None):
     cols = [r[1] for r in db.execute("PRAGMA table_info(page_actions)").fetchall()]
     if "el_index" not in cols:
         db.execute("ALTER TABLE page_actions ADD COLUMN el_index INTEGER DEFAULT 0")
+
+    # Migration: add 'path' (navigation sub-folder path, e.g. "Facturation > Contrats")
+    # to test_functionalities for pre-existing databases.
+    fcols = [r[1] for r in db.execute("PRAGMA table_info(test_functionalities)").fetchall()]
+    if "path" not in fcols:
+        db.execute("ALTER TABLE test_functionalities ADD COLUMN path TEXT DEFAULT ''")
+    if "url" not in fcols:
+        db.execute("ALTER TABLE test_functionalities ADD COLUMN url TEXT DEFAULT ''")
+
+    # Migration: add 'url' (direct module URL, e.g. .../crm) so a re-scan can
+    # navigate straight to the module instead of guessing from the dashboard.
+    mcols = [r[1] for r in db.execute("PRAGMA table_info(test_modules)").fetchall()]
+    if "url" not in mcols:
+        db.execute("ALTER TABLE test_modules ADD COLUMN url TEXT DEFAULT ''")
 
     # Bootstrap admin if no user exists
     cur = db.execute("SELECT id FROM users LIMIT 1")
@@ -152,6 +197,199 @@ def get_user(email):
     row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
     db.close()
     return User.from_row(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Test scenarios: modules -> functionalities -> steps (manual SDET)
+# ---------------------------------------------------------------------------
+
+def list_modules(pid):
+    db = get_connection()
+    rows = db.execute(
+        """SELECT m.*,
+            (SELECT COUNT(*) FROM test_functionalities f WHERE f.module_id=m.id) as functionality_count,
+            (SELECT COUNT(*) FROM test_steps s
+               JOIN test_functionalities f ON s.functionality_id=f.id
+               WHERE f.module_id=m.id) as step_count
+           FROM test_modules m WHERE m.project_id=? ORDER BY m.id""", (pid,)).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def get_module(mid):
+    db = get_connection()
+    row = db.execute("SELECT * FROM test_modules WHERE id=?", (mid,)).fetchone()
+    db.close()
+    return dict(row) if row else None
+
+
+def create_module(pid, name, description="", url=""):
+    db = get_connection()
+    cur = db.execute(
+        "INSERT INTO test_modules (project_id, name, description, url) VALUES (?,?,?,?)",
+        (pid, name, description, url))
+    db.commit()
+    mid = cur.lastrowid
+    db.close()
+    return mid
+
+
+def delete_module(mid):
+    db = get_connection()
+    db.execute("DELETE FROM test_modules WHERE id=?", (mid,))
+    db.commit()
+    db.close()
+
+
+def update_module(mid, name, description="", url=""):
+    db = get_connection()
+    db.execute(
+        "UPDATE test_modules SET name=?, description=?, url=? WHERE id=?",
+        (name, description, url, mid))
+    db.commit()
+    db.close()
+
+
+def list_functionalities(mid):
+    db = get_connection()
+    rows = db.execute(
+        "SELECT * FROM test_functionalities WHERE module_id=? ORDER BY id", (mid,)).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def list_all_functionalities(pid):
+    db = get_connection()
+    rows = db.execute(
+        """SELECT f.*, m.name as module_name, m.id as module_id
+           FROM test_functionalities f
+           JOIN test_modules m ON f.module_id=m.id
+           WHERE m.project_id=? ORDER BY m.id, f.id""", (pid,)).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def get_functionality(fid):
+    db = get_connection()
+    row = db.execute("SELECT * FROM test_functionalities WHERE id=?", (fid,)).fetchone()
+    db.close()
+    return dict(row) if row else None
+
+
+def create_functionality(mid, name, description="", path="", url=""):
+    db = get_connection()
+    cur = db.execute(
+        "INSERT INTO test_functionalities (module_id, name, description, path, url) VALUES (?,?,?,?,?)",
+        (mid, name, description, path, url))
+    db.commit()
+    fid = cur.lastrowid
+    db.close()
+    return fid
+
+
+def delete_functionality(fid):
+    db = get_connection()
+    db.execute("DELETE FROM test_functionalities WHERE id=?", (fid,))
+    db.commit()
+    db.close()
+
+
+def toggle_functionality(fid):
+    """Toggle is_active for a functionality. Returns new state (0 or 1)."""
+    db = get_connection()
+    row = db.execute("SELECT is_active FROM test_functionalities WHERE id=?", (fid,)).fetchone()
+    if not row:
+        db.close()
+        return None
+    new_val = 0 if row["is_active"] else 1
+    db.execute("UPDATE test_functionalities SET is_active=? WHERE id=?", (new_val, fid))
+    db.commit()
+    db.close()
+    return new_val
+
+
+def get_last_functionality_status(fid):
+    """Get the last test run result status for a functionality.
+    Returns (status, date) or (None, None) if never run.
+    """
+    db = get_connection()
+    row = db.execute(
+        """SELECT r.status, t.finished_at
+           FROM test_results r
+           JOIN test_runs t ON r.test_id = t.id
+           JOIN test_functionalities f ON r.function_name = f.name
+           WHERE f.id = ?
+           ORDER BY t.id DESC LIMIT 1""", (fid,)).fetchone()
+    db.close()
+    if row:
+        return (row["status"], row["finished_at"])
+    return (None, None)
+
+
+def list_steps(fid):
+    db = get_connection()
+    rows = db.execute(
+        "SELECT * FROM test_steps WHERE functionality_id=? ORDER BY step_order, id",
+        (fid,)).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def add_step(fid, description):
+    db = get_connection()
+    nxt = db.execute(
+        "SELECT COALESCE(MAX(step_order),0)+1 FROM test_steps WHERE functionality_id=?",
+        (fid,)).fetchone()[0]
+    cur = db.execute(
+        "INSERT INTO test_steps (functionality_id, step_order, description) VALUES (?,?,?)",
+        (fid, nxt, description))
+    db.commit()
+    sid = cur.lastrowid
+    db.close()
+    return sid
+
+
+def delete_step(sid):
+    db = get_connection()
+    db.execute("DELETE FROM test_steps WHERE id=?", (sid,))
+    db.commit()
+    db.close()
+
+
+def update_functionality(fid, name, description="", path="", url=""):
+    db = get_connection()
+    db.execute("UPDATE test_functionalities SET name=?, description=?, path=?, url=? WHERE id=?",
+               (name, description, path, url, fid))
+    db.commit()
+    db.close()
+
+
+def update_step(sid, description):
+    db = get_connection()
+    db.execute("UPDATE test_steps SET description=? WHERE id=?", (description, sid))
+    db.commit()
+    db.close()
+
+
+def get_step(sid):
+    db = get_connection()
+    row = db.execute("SELECT * FROM test_steps WHERE id=?", (sid,)).fetchone()
+    db.close()
+    return dict(row) if row else None
+
+
+def scenario_tree(pid):
+    """Return nested structure: modules with their functionalities and steps."""
+    modules = list_modules(pid)
+    for m in modules:
+        fns = list_functionalities(m["id"])
+        for f in fns:
+            f["steps"] = list_steps(f["id"])
+            status, date = get_last_functionality_status(f["id"])
+            f["last_status"] = status
+            f["last_run_date"] = date
+        m["functionalities"] = fns
+    return modules
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +583,60 @@ def save_result(tid, res, screenshot="", http_status=0):
          res["expected"], res["obtained"], screenshot, http_status))
     db.execute(
         "UPDATE test_runs SET status='running' WHERE id=?", (tid,))
+    db.commit()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# Manual scenario runs (steps validated by the operator)
+# ---------------------------------------------------------------------------
+
+def mark_manual_step(rid, status):
+    db = get_connection()
+    db.execute("UPDATE test_results SET status=? WHERE id=?", (status, rid))
+    db.commit()
+    db.close()
+
+
+def delete_test_run(tid):
+    db = get_connection()
+    db.execute("DELETE FROM test_runs WHERE id=?", (tid,))
+    db.commit()
+    db.close()
+
+
+def finalize_manual_run(tid, running=False):
+    """Mark a manual scenario run. When `running`, only signal it is in
+    progress. Otherwise finalize with counters derived from validated steps."""
+    db = get_connection()
+    if running:
+        db.execute("UPDATE test_runs SET status='running' WHERE id=?", (tid,))
+    else:
+        rows = db.execute(
+            "SELECT status FROM test_results WHERE test_id=? AND status NOT IN ('', 'PENDING')",
+            (tid,)).fetchall()
+        total = passed = failed = warning = skipped = 0
+        for r in rows:
+            total += 1
+            s = r["status"]
+            if s == "PASS":
+                passed += 1
+            elif s == "FAIL":
+                failed += 1
+            elif s == "WARNING":
+                warning += 1
+            else:
+                skipped += 1
+        pending = db.execute(
+            "SELECT COUNT(*) FROM test_results WHERE test_id=? AND status IN ('', 'PENDING')",
+            (tid,)).fetchone()[0]
+        total += pending
+        skipped += pending
+        db.execute(
+            """UPDATE test_runs SET status='completed', finished_at=datetime('now'),
+               total=?, passed=?, failed=?, warning=?, skipped=?, report_json='{}'
+               WHERE id=?""",
+            (total, passed, failed, warning, skipped, tid))
     db.commit()
     db.close()
 

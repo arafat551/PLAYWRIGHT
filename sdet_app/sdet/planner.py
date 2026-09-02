@@ -189,3 +189,28 @@ def applicable_atomic_actions(actions, environment):
             "default_checked": not sensitive,
         })
     return out
+
+
+def build_walk(pages):
+    """Build a plan that walks EVERY button on each explored page.
+
+    One `walk` step per page: at run time the page is re-scanned live and each
+    visible physical button is clicked in turn (see runner.walk_page). This is
+    the "trouver + parcourir tous les boutons" mode the user asked for.
+    """
+    steps = []
+    seen = set()
+    for p in pages:
+        url = getattr(p, "url", None) or (p.get("url") if isinstance(p, dict) else None)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        name = getattr(p, "name", None) or (p.get("name") if isinstance(p, dict) else None) or "Général"
+        steps.append({
+            "step_type": "walk",
+            "module": name,
+            "url": url,
+            "label": "Parcourir tous les boutons",
+            "action": "WALK",
+        })
+    return steps

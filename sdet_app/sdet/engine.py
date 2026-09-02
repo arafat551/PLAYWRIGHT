@@ -79,9 +79,17 @@ def run_exploration(tid, pid):
             on_progress=progress,
             is_cancelled=lambda: _is_cancelled(tid))
 
-        pages = [{"name": info["name"], "url": u, "status": info["status"]}
-                 for u, info in found.items()]
-        database.replace_pages_and_actions(pid, pages, actions)
+        if _is_cancelled(tid):
+            # Arrêt demandé : ne pas écraser la cartographie existante.
+            database.finalize_test_run(tid, "cancelled", _zero(), [])
+            return
+
+        if found:
+            pages = [{"name": info["name"], "url": u, "status": info["status"]}
+                     for u, info in found.items()]
+            database.replace_pages_and_actions(pid, pages, actions)
+        # found vide (échec de login / site indisponible) : on garde la
+        # cartographie d'une exploration précédente au lieu de tout effacer.
         database.mark_explored(tid, len(found))
     except Exception as e:
         database.save_test_error(tid, str(e))

@@ -15,16 +15,8 @@
         </div>
     </div>
     <div class="run-actions">
-        <form class="inline-form" method="POST" action="{{ url_for('project_explore', pid=project.id) }}">
-            <button class="btn-primary">Explorer l'application</button>
-        </form>
-        {% if pages_count > 0 %}
-        <a class="btn-secondary" href="{{ url_for('project_select', pid=project.id) }}">Choisir les tests</a>
-        <form class="inline-form" method="POST" action="{{ url_for('run_regression', pid=project.id) }}">
-            <button class="btn-secondary">Lancer une régression</button>
-        </form>
-        {% endif %}
-        <a class="btn-sm" href="{{ url_for('project_edit', pid=project.id) }}">Modifier</a>
+        <a class="btn-primary" href="{{ url_for('project_scenarios', pid=project.id) }}">Scénarios de test</a>
+        <a class="btn-sm btn-warning" href="{{ url_for('project_edit', pid=project.id) }}">Modifier</a>
     </div>
 </div>
 
@@ -36,16 +28,17 @@
             <tr><th>URL</th><td><a href="{{ project.url }}" target="_blank">{{ project.url }}</a></td></tr>
             <tr><th>Environnement</th><td>{{ project.environment }}</td></tr>
             <tr><th>Authentification</th><td>{{ project.auth_type }}</td></tr>
+        </table>
+    </div>
+    <div class="card">
+        <h2>Statistiques</h2>
+        <table class="data-table">
             <tr><th>Statut</th><td><span class="badge badge-{{ 'active' if project.status=='active' else 'disabled' }}">{{ project.status }}</span></td></tr>
             <tr><th>Créé par</th><td>{{ project.created_by or '-' }}</td></tr>
             <tr><th>Dernière modification</th><td>{{ (project.updated_at or '')[:16] }}</td></tr>
             <tr><th>Pages découvertes</th><td>{{ pages_count }}</td></tr>
             <tr><th>Taux de réussite</th><td>{{ success_pct }}%</td></tr>
         </table>
-    </div>
-    <div class="card">
-        <h2>Instructions QA</h2>
-        <p class="text-muted" style="white-space:pre-wrap">{{ project.comments or 'Aucune instruction spécifique.' }}</p>
     </div>
 </div>
 

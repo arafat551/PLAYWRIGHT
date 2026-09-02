@@ -13,9 +13,13 @@
     </div>
     <div class="run-actions">
         <a class="btn-secondary" href="{{ url_for('project_detail', pid=test.project_id) }}">Retour au projet</a>
+        {% if test.status in ('explored','cancelled') %}
+        <a class="btn-primary" href="{{ url_for('project_select', pid=test.project_id) }}">Choisir les tests</a>
+        {% else %}
         <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
             <button class="btn-stop">Arrêter l'exploration</button>
         </form>
+        {% endif %}
     </div>
 </div>
 
@@ -34,10 +38,12 @@
 {% endblock %}
 {% block scripts %}
 <script>
+{% if test.status in ('exploring','running','waiting_otp','cancel_requested') %}
 setInterval(function(){
     fetch(location.href, {headers:{'Accept':'text/html'}})
         .then(r=>r.text())
         .then(()=>{ location.reload(); });
 }, 4000);
+{% endif %}
 </script>
 {% endblock %}

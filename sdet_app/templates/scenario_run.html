@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Parcours de test - {{ test.project_name }}{% endblock %}
+{% block content %}
+{% set groups = results | groupby('module') %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            Parcours de test
+        </h1>
+        <div class="page-subtitle">{{ test.project_name }} — suivez chaque étape à la lettre et validez.</div>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_scenarios', pid=test.project_id) }}" class="btn-secondary">Gérer les scénarios</a>
+        <a href="{{ url_for('project_detail', pid=test.project_id) }}" class="btn-secondary">Retour au projet</a>
+    </div>
+</div>
+
+{% set ns = namespace(done=0, total=results|length) %}
+{% for r in results %}{% if r.status not in ('', 'PENDING') %}{% set ns.done = ns.done + 1 %}{% endif %}{% endfor %}
+<div class="card report-header">
+    <div>
+        <p><b>Projet :</b> {{ test.project_name }} &nbsp; <b>Type :</b> {{ test.run_type }} &nbsp; <b>Lancé par :</b> {{ test.launched_by }}</p>
+        <p><b>Avancement :</b> {{ ns.done }} / {{ ns.total }} étapes validées</p>
+    </div>
+    <div class="report-score">
+        <div class="score-circle {{ 'score-good' if ns.done>0 and ns.done>=ns.total else ('score-mid' if ns.done>0 else 'score-bad') }}">
+            {{ ((ns.done / ns.total * 100)|round(0)|int) if ns.total>0 else 0 }}%
+        </div>
+        <span>Validé</span>
+    </div>
+</div>
+
+<div class="progress-bar" style="margin-bottom:1.5rem">
+    <div class="progress-bar-fill" style="width:{{ ((ns.done / ns.total * 100)|round) if ns.total>0 else 0 }}%"></div>
+</div>
+
+{% for mod, rows in groups %}
+<div class="card">
+    <h2>Module : {{ mod }}</h2>
+    {% for fname, frows in (rows | groupby('function')) %}
+    <div class="functionality">
+        <div class="functionality-head">
+            <strong>{{ fname }}</strong>
+            {% set fp = namespace(done=0) %}
+            {% for fr in frows %}{% if fr.status not in ('', 'PENDING') %}{% set fp.done = fp.done + 1 %}{% endif %}{% endfor %}
+            <span class="text-muted text-small">{{ fp.done }}/{{ frows|length }}</span>
+        </div>
+        {% if frows and frows[0].expected %}
+        <div class="text-muted text-small" style="margin-bottom:.5rem">{{ frows[0].expected }}</div>
+        {% endif %}
+        <table class="data-table">
+            <thead><tr><th style="width:130px">Statut</th><th>Étape</th><th style="width:230px">Valider</th></tr></thead>
+            <tbody>
+            {% for r in frows %}
+            <tr class="row-{{ r.status }}">
+                <td>
+                    {% if r.status in ('', 'PENDING') %}
+                    <span class="badge badge-PENDING">En attente</span>
+                    {% else %}
+                    <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.action }}</td>
+                <td>
+                    {% if r.status in ('', 'PENDING') %}
+                    <form class="step-validate" method="POST" action="{{ url_for('scenario_step_mark', tid=test.id, rid=r.id) }}">
+                        <input type="hidden" name="status" value="PASS">
+                        <button class="btn-sm btn-pass" type="submit">✓ PASS</button>
+                    </form>
+                    <form class="step-validate" method="POST" action="{{ url_for('scenario_step_mark', tid=test.id, rid=r.id) }}">
+                        <input type="hidden" name="status" value="FAIL">
+                        <button class="btn-sm btn-fail" type="submit">✗ FAIL</button>
+                    </form>
+                    <form class="step-validate" method="POST" action="{{ url_for('scenario_step_mark', tid=test.id, rid=r.id) }}">
+                        <input type="hidden" name="status" value="WARNING">
+                        <button class="btn-sm btn-warn" type="submit">⚠ Blocage</button>
+                    </form>
+                    {% else %}
+                    <span class="text-muted text-small">Validé</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+<div class="card">
+    <div class="run-actions" style="justify-content:space-between">
+        <span class="text-muted text-small">À la fin, générez le rapport récapitulatif par module / fonctionnalité / étape.</span>
+        <div class="run-actions">
+            <a href="{{ url_for('test_cancel', tid=test.id) }}" class="btn-secondary">Abandonner</a>
+            <form method="POST" action="{{ url_for('scenario_finish', tid=test.id) }}">
+                <button class="btn-primary" type="submit">Terminer et générer le rapport</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
+<script>
+setInterval(()=>{ location.reload(); }, 3000);
+</script>
+{% endif %}
+{% endblock %}

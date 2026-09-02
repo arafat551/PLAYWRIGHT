@@ -71,6 +71,81 @@ def classifies_action(label, dom_hint=""):
     return None
 
 
+def plan_step_action(step_desc, page_state, project_context=""):
+    """Ask OpenAI to plan the next browser action for a natural-language step.
+
+    `step_desc` is the human description of what to do (e.g. "Cliquer sur
+    Ajouter"), `page_state` lists the actionable elements visible on the
+    current page. Returns a JSON action dict, or None if unavailable.
+
+    Action schema:
+      {"action": "CLICK|FILL|SELECT|NAVIGATE|WAIT|SCROLL|VERIFY",
+       "selector": "<css selector or element index>",
+       "text": "<value to type or option to pick>",
+       "done": true/false,
+       "comment": "<short reason>"}
+    """
+    client = _client()
+    if not client:
+        return None
+    try:
+        system = (
+            "You drive a QA browser. Given a step to perform and the list of "
+            "actionable elements currently on the page, return the SINGLE "
+            "browser action that best performs the step. Reply with valid JSON "
+            "only, of the form: "
+            '{"action":"CLICK|FILL|SELECT|NAVIGATE|WAIT|SCROLL|VERIFY",'
+            '"selector":"<number of the element from the list, or a css selector>",'
+            '"text":"<value to type if FILL/SELECT/NAVIGATE>",'
+            '"done":true|false,'
+            '"comment":"<short reason>"}. '
+            'Set "done":true when the step is fully accomplished (nothing more '
+            "to click), else false. The selector must be an integer index "
+            "(0-based) into the provided element list whenever possible. "
+            "Match the step description to the element whose label, type, or CSS "
+            "class best corresponds (e.g. 'Ajouter' matches a button/link with "
+            "label 'Ajouter' or 'Ajouter un client', or a '+' icon button, or "
+            "an element with CSS class containing 'btn' and label 'Ajouter'). "
+            "If no exact label match, prefer the closest semantic match."
+        )
+        user = (
+            f"Projet/URL: {project_context}\n"
+            f"Étape à réaliser: {step_desc}\n\n"
+            f"Éléments actionnables présents sur la page (index: libellé [type [css]]):\n"
+            + _fmt_elements(page_state)
+        )
+        resp = client.chat.completions.create(
+            model=get_setting("ai_model", env.OPENAI_MODEL),
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=400,
+            temperature=0,
+        )
+        data = _extract_json(resp.choices[0].message.content)
+        if data and data.get("action"):
+            data["action"] = data["action"].upper()
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _fmt_elements(page_state):
+    if not page_state:
+        return "(aucun élément)"[:400]
+    lines = []
+    for i, el in enumerate(page_state):
+        label = (el.get("label") or "").strip()[:60]
+        etype = (el.get("type") or "").strip()
+        css = (el.get("css") or "").strip()[:40]
+        hint = f" [{css}]" if css else ""
+        lines.append(f"{i}: {label} [{etype}]{hint}")
+    text = "\n".join(lines)
+    return text[:3000]
+
+
 def help_evaluate(action_desc, before, after, project_context=""):
     """Ask OpenAI to evaluate an ambiguous outcome. Returns dict or None."""
     client = _client()

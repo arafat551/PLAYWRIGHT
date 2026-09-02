@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Modifier le module — {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </span>
+            Modifier le module
+        </h1>
+        <div class="page-subtitle">« {{ module.name }} » — {{ project.name }}</div>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Retour aux scénarios</a>
+    </div>
+</div>
+
+<div class="card form-card">
+    <h2>Module</h2>
+    <form method="POST" action="{{ url_for('scenario_module_edit', pid=project.id, mid=module.id) }}">
+        <label for="name">Nom du module</label>
+        <input type="text" id="name" name="name" value="{{ module.name }}" required
+               placeholder="Nom du module (ex&nbsp;: CRM)">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="2"
+                  placeholder="Description (optionnel)">{{ module.description or '' }}</textarea>
+        <label for="url">URL du module (optionnel)</label>
+        <input type="text" id="url" name="url" value="{{ module.url or '' }}"
+               placeholder="Ex&nbsp;: https://kpip.kprimesoft.com/crm">
+        <span class="field-hint">Le scan navigue vers cette URL en premier et n'enregistre rien s'il n'y arrive pas. Renseignée automatiquement après un scan de tout le logiciel.</span>
+        <div class="form-actions">
+            <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

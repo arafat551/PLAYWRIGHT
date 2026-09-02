@@ -13,7 +13,7 @@
     </div>
     <div class="run-actions">
         <a class="btn-secondary" href="{{ url_for('project_detail', pid=test.project_id) }}">Retour au projet</a>
-        {% if test.status in ('running','exploring','waiting_otp') %}
+        {% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
         <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
             <button class="btn-stop">Arrêter le test</button>
         </form>

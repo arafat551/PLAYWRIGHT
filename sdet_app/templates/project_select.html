@@ -22,6 +22,12 @@
 </div>
 {% endif %}
 
+{% set TYPE_LABELS = {
+    'CREATE': 'Création', 'DELETE': 'Suppression', 'UPDATE': 'Modification',
+    'SEARCH': 'Recherche', 'STATUS': 'État', 'READ': 'Lecture',
+    'NAVIGATION': 'Navigation', 'GENERIC': 'Action'
+} %}
+
 <div class="filter-bar">
     <input type="text" id="searchFilter" placeholder="Rechercher une page ou une action…">
 </div>
@@ -57,14 +63,32 @@
         {% if g.actions %}
         <div class="page-actions-list">
             {% for it in g.actions %}
+            {% set tlabel = TYPE_LABELS.get(it.action_type, it.action_type) %}
             <label class="action-check {{ 'is-sensitive' if it.sensitive else '' }}"
                    data-page="{{ g.url }}" data-label="{{ it.label | lower }}">
                 <input type="checkbox" name="action_ids" value="{{ it.id }}"
                        data-page="{{ g.url }}"
                        class="action-checkbox {{ 'is-sensitive' if it.sensitive else '' }}"
                        {{ 'checked' if it.default_checked else '' }}>
+                {% if it.action_type == 'CREATE' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                {% elif it.action_type == 'DELETE' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                {% elif it.action_type == 'UPDATE' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
+                {% elif it.action_type == 'SEARCH' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                {% elif it.action_type == 'STATUS' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {% elif it.action_type == 'READ' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                {% elif it.action_type == 'NAVIGATION' %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                {% else %}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
+                {% endif %}
                 <span class="action-label">{{ it.label }}</span>
-                <span class="action-type">{{ it.action_type }}</span>
+                <span class="action-type">{{ tlabel }}</span>
                 {% if it.sensitive %}
                 <span class="badge badge-WARNING" title="Action sensible : décochée par défaut, à activer manuellement">sensible</span>
                 {% endif %}

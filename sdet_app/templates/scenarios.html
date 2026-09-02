@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+{% block title %}Scénarios de test - {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            Scénarios de test
+        </h1>
+        <div class="page-subtitle">Modules → Fonctionnalités → Étapes sur <strong>{{ project.name }}</strong></div>
+    </div>
+    <div class="run-actions">
+        <button type="button" class="btn-primary" id="scanAllBtn"
+                onclick="startScanAll()">Scanner tout le logiciel</button>
+        <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Retour au projet</a>
+    </div>
+</div>
+
+<div class="info-banner">
+    <strong>Scénarios descriptifs</strong> — cochez les fonctionnalités à tester puis lancez le parcours.
+    Les <span class="step-section-title" style="display:inline;padding:0.1rem 0.3rem;font-size:0.75rem;"> étiquettes colorées</span> indiquent le dernier résultat (PASS/FAIL).
+    Utilisez la flèche ⬇ d'une fonctionnalité pour générer ses étapes CRUD, le bouton ⬇ d'un module pour
+    scanner tout le module, ou « Scanner tout le logiciel » pour détecter modules + fonctionnalités + scénarios en un seul passage.
+</div>
+
+<div class="create-cards-row">
+<div class="card create-module-card">
+    <h2>Créer un module</h2>
+    <form method="POST" action="{{ url_for('scenario_module_create', pid=project.id) }}" class="create-form">
+        <div class="field">
+            <label for="module-name">Nom du module</label>
+            <input type="text" id="module-name" name="name" placeholder="Nom du module (ex&nbsp;: CRM)" required>
+        </div>
+        <div class="field">
+            <label for="module-desc">Description</label>
+            <textarea id="module-desc" name="description" rows="2" placeholder="Description (optionnel)"></textarea>
+        </div>
+        <div class="field">
+            <label for="module-url">URL du module (optionnel)</label>
+            <input type="text" id="module-url" name="url"
+                   placeholder="https://.../crm — si vide, déduite du nom (nom «&nbsp;CRM&nbsp;» → URL /crm)">
+            <p class="text-muted text-small">Le scan ouvrira cette page en premier et n'enregistrera que les pages sous ce préfixe.</p>
+        </div>
+        <div class="field-submit">
+            <button type="submit" class="btn-primary">Créer le module</button>
+        </div>
+    </form>
+</div>
+
+<div class="card create-scan-hint-card">
+    <h2>Scanner un module</h2>
+    <p class="text-muted">
+        Après avoir créé un module, cliquez sur sa flèche ⬇ pour parcourir le logiciel,
+        relever toutes ses fonctionnalités (et sous-fonctionnalités) et écrire automatiquement
+        leurs scénarios CRUD — le tout en un seul passage, sans re-scan.
+    </p>
+    <p class="text-muted">
+        Ou utilisez directement « Scanner tout le logiciel » en haut à droite pour que le système
+        détecte lui-même les modules (CRM, IMS…) et génère tout.
+    </p>
+</div>
+</div>
+
+<div class="modules-header">
+    <div class="modules-bulk">
+        <button type="button" class="btn-secondary" onclick="setAll(true)">Tout cocher</button>
+        <button type="button" class="btn-secondary" onclick="setAll(false)">Tout décocher</button>
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('scenario_run', pid=project.id) }}" id="scenarioForm">
+{% for m in tree %}
+<div class="page-group" data-module="{{ m.id }}">
+    <label class="page-group-header">
+        <input type="checkbox" class="module-check" data-module="{{ m.id }}">
+        <span class="page-name">{{ m.name }}</span>
+        <span class="page-meta">
+            {% if m.description %}<span class="text-muted text-small">{{ m.description }}</span>{% endif %}
+            {% if m.url %}<span class="module-url" title="URL du module — le scan commence ici">{{ m.url }}</span>{% endif %}
+            <span class="selected-count text-small">0/<span class="total">{{ m.functionalities|length }}</span></span>
+            <span class="module-actions">
+                <button type="button" class="icon-btn icon-generate"
+                        title="Scanner ce module (détecter ses fonctionnalités + scénarios)"
+                        onclick="startModuleScan(this, '{{ url_for('scenario_module_generate', pid=project.id, mid=m.id) }}', '{{ m.name }}')">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <details class="fn-details module-details">
+                    <summary class="icon-btn" title="Ajouter une fonctionnalité manuellement">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    </summary>
+                    <div class="fn-steps-panel">
+                        <div class="step-form">
+                            <input type="text" name="name" placeholder="Nom de la fonctionnalité"
+                                   id="module-fn-input-{{ m.id }}">
+                            <input type="text" name="url" placeholder="URL directe (optionnel)"
+                                   id="module-fn-url-{{ m.id }}"
+                                   title="URL de l'écran, ex&nbsp;: https://.../crm/clients">
+                            <button type="button" class="btn-secondary"
+                                    onclick="addFunctionality(event, '{{ url_for('scenario_functionality_create', pid=project.id, mid=m.id) }}', 'module-fn-input-{{ m.id }}', 'module-fn-url-{{ m.id }}')">Ajouter la fonctionnalité</button>
+                        </div>
+                    </div>
+                </details>
+                <a href="{{ url_for('scenario_module_edit', pid=project.id, mid=m.id) }}"
+                   class="icon-btn icon-edit" title="Modifier le module">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </a>
+                <button type="button" class="icon-btn icon-delete" title="Supprimer le module"
+                        onclick="confirmAction('{{ url_for('scenario_module_delete', pid=project.id, mid=m.id) }}', 'Supprimer tout le module {{ m.name }} ?')">🗑</button>
+            </span>
+        </span>
+    </label>
+
+    <div class="page-body">
+        <div class="fn-text-list">
+            {% for f in m.functionalities %}
+            <div class="fn-text-row{% if not f.get('is_active', 1) %} is-disabled{% endif %}">
+                <div class="fn-text-main">
+                    <label class="fn-text-check">
+                        <input type="checkbox" name="functionality_ids" value="{{ f.id }}"
+                               data-module="{{ m.id }}" class="fn-checkbox"
+                               {% if not f.get('is_active', 1) %}disabled{% endif %}>
+                    </label>
+                    <div class="fn-text-info">
+                        <div class="fn-text-title">{{ f.name }}
+                            {% if f.steps %}<span class="fn-text-count">{{ f.steps|length }} étape(s)</span>{% endif %}
+                            {% if f.get('last_status') %}
+                                <span class="fn-status fn-status-{{ f.last_status|lower }}">{{ f.last_status }}</span>
+                            {% endif %}
+                        </div>
+                        {% if f.path %}
+                        <div class="fn-text-path">📁 {{ f.path }}</div>
+                        {% endif %}
+                        {% if f.url %}
+                        <div class="fn-text-path">🔗 {{ f.url }}</div>
+                        {% endif %}
+                        {% if f.description %}
+                        <div class="fn-text-desc">{{ f.description }}</div>
+                        {% endif %}
+                        {% if f.steps %}
+                        {% set ns = namespace(step_num=0, in_list=false) %}
+                        {% for s in f.steps %}
+                            {% if s.description in ('CRÉATION', 'MODIFICATION', 'SUPPRESSION') %}
+                                {% if ns.in_list %}</ol>{% endif %}
+                                <div class="step-section-title">{{ s.description }}</div>
+                                <ol class="step-list step-list-inline">
+                                {% set ns.in_list = true %}
+                            {% else %}
+                                {% set ns.step_num = ns.step_num + 1 %}
+                                {% if not ns.in_list %}<ol class="step-list step-list-inline">{% set ns.in_list = true %}{% endif %}
+                                <li>
+                                    <span class="step-num">{{ ns.step_num }}</span>
+                                    <span class="step-text">{{ s.description }}</span>
+                                    <a href="{{ url_for('scenario_step_edit', pid=project.id, sid=s.id) }}"
+                                       class="icon-btn icon-edit icon-xs" title="Modifier l'étape">✎</a>
+                                    <button type="button" class="icon-btn icon-delete icon-xs" title="Supprimer l'étape"
+                                            onclick="confirmAction('{{ url_for('scenario_step_delete', pid=project.id, sid=s.id) }}', 'Supprimer cette étape ?')">×</button>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                        {% if ns.in_list %}</ol>{% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="fn-text-btns">
+                    <button type="button" class="icon-btn icon-generate" title="Générer les étapes CRUD automatiquement"
+                            onclick="generateSteps(this, '{{ url_for('scenario_functionality_generate', pid=project.id, fid=f.id) }}', '{{ f.name }}')">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
+                    <details class="fn-details">
+                        <summary class="icon-btn" title="Ajouter une étape manuellement">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                        </summary>
+                        <div class="fn-steps-panel">
+                            <div class="step-form">
+                                <input type="text" name="description" placeholder="Ajouter une étape"
+                                       id="step-input-{{ f.id }}">
+                                <button type="button" class="btn-secondary"
+                                        onclick="addStep(event, '{{ url_for('scenario_step_create', pid=project.id, fid=f.id) }}', 'step-input-{{ f.id }}')">Ajouter l'étape</button>
+                            </div>
+                        </div>
+                    </details>
+                    <a href="{{ url_for('scenario_functionality_edit', pid=project.id, fid=f.id) }}"
+                       class="icon-btn icon-edit" title="Modifier la fonctionnalité">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </a>
+                    <button type="button" class="icon-btn icon-delete" title="Supprimer"
+                            onclick="confirmAction('{{ url_for('scenario_functionality_delete', pid=project.id, fid=f.id) }}', 'Supprimer la fonctionnalité {{ f.name }} ?')">🗑</button>
+                </div>
+            </div>
+            {% else %}
+            <span class="text-muted text-small">Aucune fonctionnalité.</span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card" style="margin-top:1rem;">
+    <p class="text-muted">Aucun module. Commencez par créer un module ci-dessus.</p>
+</div>
+{% endfor %}
+
+<div class="selection-summary">
+    <div class="summary-count">
+        <span class="pill" id="count">0</span>
+        <span class="text-muted">fonctionnalité(s) sélectionnée(s)</span>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Annuler</a>
+        <button type="submit" class="btn-primary" id="launchBtn" disabled>Lancer les tests</button>
+    </div>
+</div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function updateCount(){
+    const total = document.querySelectorAll('.fn-checkbox:checked').length;
+    document.getElementById('count').textContent = total;
+    document.getElementById('launchBtn').disabled = total === 0;
+    document.querySelectorAll('.page-group[data-module]').forEach(group => {
+        const chk = group.querySelector('.module-check');
+        if(!chk) return;
+        const boxes = group.querySelectorAll('.fn-checkbox');
+        const checked = group.querySelectorAll('.fn-checkbox:checked').length;
+        chk.checked = boxes.length > 0 && checked === boxes.length;
+        chk.indeterminate = checked > 0 && checked < boxes.length;
+        const sc = group.querySelector('.selected-count');
+        if(sc) sc.firstChild.textContent = checked + '/';
+    });
+}
+
+function setAll(checked){
+    document.querySelectorAll('.module-check').forEach(chk => chk.checked = checked);
+    document.querySelectorAll('.fn-checkbox').forEach(c => c.checked = checked);
+    updateCount();
+}
+
+function confirmAction(url, message){
+    if(!confirm(message)) return;
+    fetch(url, { method: 'POST' }).then(() => location.reload());
+}
+
+function toggleScenario(url){
+    fetch(url, { method: 'POST' }).then(() => location.reload());
+}
+
+var GENERATE_POLL_MS = 1500;
+
+function generateSteps(btn, url, name){
+    if(!confirm(`Générer automatiquement les étapes de « ${name} » ? Les étapes actuelles seront remplacées.`)) return;
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('generating');
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    btn.title = 'Génération en cours…';
+
+    const statusUrl = url + '/status';
+    const finishFail = function(msg){
+        btn.disabled = false;
+        btn.classList.remove('generating');
+        btn.innerHTML = original;
+        btn.title = 'Générer les étapes CRUD automatiquement';
+        alert(msg || 'Erreur lors de la génération des étapes.');
+        location.reload();
+    };
+
+    fetch(url, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if(data.status === 'running' || data.status === 'started'){
+                pollGeneration(statusUrl, finishFail);
+            } else if(data.status === 'error'){
+                finishFail(data.message);
+            } else {
+                location.reload();
+            }
+        })
+        .catch(() => finishFail('Impossible de lancer la génération (erreur réseau).'));
+}
+
+function pollGeneration(statusUrl, finishFail){
+    const started = Date.now();
+    const timeoutMs = (GENERATE_POLL_MS * 200);  // generous ceiling
+    const tick = function(){
+        if(Date.now() - started > timeoutMs){
+            finishFail('La génération a expiré. Réessayez.');
+            return;
+        }
+        fetch(statusUrl)
+            .then(r => r.json())
+            .then(d => {
+                if(d.status === 'done'){
+                    location.reload();
+                } else if(d.status === 'error'){
+                    finishFail(d.message);
+                } else {
+                    setTimeout(tick, GENERATE_POLL_MS);
+                }
+            })
+            .catch(() => setTimeout(tick, 2000));
+    };
+    setTimeout(tick, GENERATE_POLL_MS);
+}
+
+function addStep(ev, url, inputId){
+    const input = document.getElementById(inputId);
+    const desc = input.value.trim();
+    if(!desc){ alert('La description de l\'étape est obligatoire'); return; }
+    const body = new URLSearchParams();
+    body.append('description', desc);
+    fetch(url, { method: 'POST', body: body, headers: {'Content-Type': 'application/x-www-form-urlencoded'} })
+        .then(() => location.reload());
+}
+
+function addFunctionality(ev, url, inputId, urlInputId){
+    const input = document.getElementById(inputId);
+    const name = input.value.trim();
+    if(!name){ alert('Le nom de la fonctionnalité est obligatoire'); return; }
+    const body = new URLSearchParams();
+    body.append('name', name);
+    const urlField = document.getElementById(urlInputId);
+    if(urlField){
+        const u = urlField.value.trim();
+        if(u) body.append('url', u);
+    }
+    fetch(url, { method: 'POST', body: body, headers: {'Content-Type': 'application/x-www-form-urlencoded'} })
+        .then(() => location.reload());
+}
+
+function showScanFail(btn, label, msg){
+    if(btn){
+        btn.disabled = false;
+        btn.classList.remove('generating');
+        btn.innerHTML = label;
+    }
+    alert(msg || 'Erreur pendant le scan.');
+    location.reload();
+}
+
+function pollScan(statusUrl, onDone, onFail, timeoutMs){
+    const started = Date.now();
+    const tick = function(){
+        if(Date.now() - started > timeoutMs){
+            onFail('Le scan a expiré. Réessayez.');
+            return;
+        }
+        fetch(statusUrl)
+            .then(r => r.json())
+            .then(d => {
+                if(d.status === 'done'){
+                    onDone(d);
+                } else if(d.status === 'error'){
+                    onFail(d.message);
+                } else {
+                    setTimeout(tick, GENERATE_POLL_MS);
+                }
+            })
+            .catch(() => setTimeout(tick, 2000));
+    };
+    setTimeout(tick, GENERATE_POLL_MS);
+}
+
+function startModuleScan(btn, url, name){
+    if(!confirm(`Scanner le module « ${name} » ? Le système va parcourir le module pour détecter ses fonctionnalités et écrire leurs scénarios CRUD. Les fonctionnalités actuelles seront remplacées.`)) return;
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('generating');
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    btn.title = 'Scan du module en cours…';
+
+    const statusUrl = url + '/status';
+    const fail = function(msg){
+        showScanFail(btn, original, msg || 'Erreur pendant le scan du module.');
+    };
+
+    fetch(url, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if(d.status === 'running' || d.status === 'started'){
+                pollScan(statusUrl, () => location.reload(), fail, GENERATE_POLL_MS * 200);
+            } else if(d.status === 'error'){
+                fail(d.message);
+            } else {
+                location.reload();
+            }
+        })
+        .catch(() => fail('Impossible de lancer le scan du module (erreur réseau).'));
+}
+
+function startScanAll(){
+    const btn = document.getElementById('scanAllBtn');
+    if(!btn) return;
+    if(!confirm('Scanner tout le logiciel ? Le système va détecter automatiquement les modules (CRM, IMS…), leurs fonctionnalités (et sous-fonctionnalités) et écrire les scénarios CRUD — le tout en un seul passage. Tous les modules existants seront remplacés.')) return;
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('generating');
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Scan en cours…';
+
+    const url = "{{ url_for('scenario_scan_all', pid=project.id) }}";
+    const statusUrl = url + '/status';
+    const fail = function(msg){
+        showScanFail(btn, original, msg || 'Erreur pendant le scan de l\'application.');
+    };
+
+    fetch(url, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if(d.status === 'running' || d.status === 'started'){
+                pollScan(statusUrl, () => location.reload(), fail, GENERATE_POLL_MS * 250);
+            } else if(d.status === 'error'){
+                fail(d.message);
+            } else {
+                location.reload();
+            }
+        })
+        .catch(() => fail('Impossible de lancer le scan (erreur réseau).'));
+}
+
+document.querySelectorAll('.module-check').forEach(chk => {
+    chk.addEventListener('change', () => {
+        const mod = chk.dataset.module;
+        document.querySelectorAll(`.fn-checkbox[data-module="${mod}"]`).forEach(c => c.checked = chk.checked);
+        updateCount();
+    });
+});
+document.querySelectorAll('.fn-checkbox').forEach(c => c.addEventListener('change', updateCount));
+document.getElementById('scenarioForm').addEventListener('submit', function(e){
+    if(document.querySelectorAll('.fn-checkbox:checked').length === 0){
+        e.preventDefault();
+        const bar = document.querySelector('.selection-summary');
+        bar.style.borderColor = '#dc2626';
+        setTimeout(()=>{ bar.style.borderColor = ''; }, 1200);
+    }
+});
+updateCount();
+</script>
+{% endblock %}

@@ -86,7 +86,11 @@ def render_html(report, report_path=None):
         for r in items:
             status = r["status"]
             icon = {"PASS": "&#9989;", "FAIL": "&#10060;", "WARNING": "&#9888;&#65039;", "SKIPPED": "&#128197;"}.get(status, "&#10067;")
-            shot = f'<a href="{r["screenshot"]}">capture</a>' if r.get("screenshot") else ""
+            shot = ""
+            if r.get("screenshot"):
+                # The report lives in <sdet_app>/reports/, screenshots live in
+                # <sdet_app>/static/screenshots/ — resolve relative to file.
+                shot = f'<a href="../static/{r["screenshot"]}">capture</a>'
             rows.append(f'<tr><td>{r.get("function")}</td><td>{icon} {status}</td><td>{shot}</td></tr>')
         rows.append("</tbody></table>")
 
