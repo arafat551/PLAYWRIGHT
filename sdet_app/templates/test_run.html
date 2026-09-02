@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Test - {{ test.project_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+            </span>
+            TEST EN COURS
+        </h1>
+        <div class="page-subtitle">{{ test.project_name }} — suivi en direct de l'exécution</div>
+    </div>
+    <div class="run-actions">
+        <a class="btn-secondary" href="{{ url_for('project_detail', pid=test.project_id) }}">Retour au projet</a>
+        {% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
+        <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
+            <button class="btn-stop">Arrêter le test</button>
+        </form>
+        {% else %}
+        <a class="btn-primary" href="{{ url_for('report_detail', tid=test.id) }}">Voir le rapport</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card-otp card" {% if test.status != 'waiting_otp' %}style="display:none"{% endif %}>
+    <h2>Authentification requise (2FA / OTP)</h2>
+    <p class="text-muted">Saisissez le code reçu. Le navigateur reste ouvert.</p>
+    <form method="POST" action="{{ url_for('test_otp', tid=test.id) }}">
+        <input type="text" name="otp_code" placeholder="Code OTP" autocomplete="one-time-code">
+        <button type="submit" class="btn-primary">Continuer</button>
+    </form>
+</div>
+
+<div class="test-status">
+    <span class="status-dot {{ test.status }}"></span>
+    <span class="badge badge-{{ test.status }}">{{ test.status }}</span>
+    <span class="text-muted">{{ test.run_type }} - Projet : {{ test.project_name }}</span>
+</div>
+
+<div class="stats-inline">
+    <div class="stat-card">
+        <div class="stat-number" style="font-size:1.3rem">{{ test.total }}</div>
+        <div class="stat-label">Tests</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number stat-success" style="font-size:1.3rem">{{ test.passed }}</div>
+        <div class="stat-label">PASS</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number stat-danger" style="font-size:1.3rem">{{ test.failed }}</div>
+        <div class="stat-label">FAIL</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number stat-warning" style="font-size:1.3rem">{{ test.warning }}</div>
+        <div class="stat-label">WARNING</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number" style="font-size:1.3rem;color:#9ca3af">{{ test.skipped }}</div>
+        <div class="stat-label">SKIPPED</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Résultats</h2>
+    {% for r in results %}
+    <div class="result-item">
+        <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+        <div style="flex:1">
+            <div class="result-func"><strong>{{ r.module }}</strong> — {{ r.function }}</div>
+            <div class="text-muted text-small">{{ r.expected }}</div>
+            {% if r.status == 'FAIL' %}
+            <div class="fail-detail">
+                <p><b>Action :</b> {{ r.action }}</p>
+                <p><b>Donnée :</b> {{ r.data }}</p>
+                <p><b>Attendu :</b> {{ r.expected }}</p>
+                <p><b>Obtenu :</b> {{ r.obtained }}</p>
+                <p><b>HTTP :</b> {{ r.http_status or '—' }} <b>Sévérité :</b> {{ r.severity }}</p>
+                {% if r.screenshot %}
+                <a class="screenshot-link" target="_blank" href="{{ url_for('static', filename=r.screenshot) }}">📷 Voir la capture</a>
+                <a target="_blank" href="{{ url_for('static', filename=r.screenshot) }}">
+                    <img class="shot-thumb" src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}">
+                </a>
+                {% endif %}
+            </div>
+            {% elif r.status == 'WARNING' and r.screenshot %}
+            <a class="screenshot-link" target="_blank" href="{{ url_for('static', filename=r.screenshot) }}">📷 Voir la capture</a>
+            <a target="_blank" href="{{ url_for('static', filename=r.screenshot) }}">
+                <img class="shot-thumb tiny" src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}">
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">Aucun résultat pour l'instant...</p>
+    {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+{% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
+setInterval(()=>{ location.reload(); }, 3000);
+{% endif %}
+</script>
+{% endblock %}

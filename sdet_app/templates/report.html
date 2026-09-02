@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Rapport - {{ test.project_name }}{% endblock %}
+{% block content %}
+<div class="page-header report-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
+            </span>
+            RAPPORT AUTOMATION
+        </h1>
+        <div class="page-subtitle">{{ test.project_name }} — bilan complet de l'exécution</div>
+    </div>
+    <a class="btn-secondary" href="{{ url_for('reports') }}">Tous les rapports</a>
+</div>
+
+<div class="card report-header">
+    <div>
+        <p><b>Projet :</b> {{ test.project_name }} &nbsp; <b>Environnement :</b> {{ report.environment }} &nbsp; <b>Type :</b> {{ report.run_type }}</p>
+        <p><b>Date :</b> {{ report.date }} &nbsp; <b>Lancé par :</b> {{ report.launched_by }} &nbsp; <b>Durée :</b> {{ report.duration }}</p>
+    </div>
+    <div class="report-score">
+        <div class="score-circle {{ 'score-good' if report.success_pct>=80 else ('score-mid' if report.success_pct>=50 else 'score-bad') }}">
+            {{ report.success_pct }}%
+        </div>
+        <span>Réussite</span>
+    </div>
+</div>
+
+<div class="stats-inline">
+    <div class="stat-card"><div class="stat-number" style="font-size:1.2rem">{{ report.total }}</div><div class="stat-label">Tests</div></div>
+    <div class="stat-card"><div class="stat-number stat-success" style="font-size:1.2rem">{{ report.passed }}</div><div class="stat-label">PASS</div></div>
+    <div class="stat-card"><div class="stat-number stat-danger" style="font-size:1.2rem">{{ report.failed }}</div><div class="stat-label">FAIL</div></div>
+    <div class="stat-card"><div class="stat-number stat-warning" style="font-size:1.2rem">{{ report.warning }}</div><div class="stat-label">WARNING</div></div>
+    <div class="stat-card"><div class="stat-number" style="font-size:1.2rem;color:#9ca3af">{{ report.skipped }}</div><div class="stat-label">SKIPPED</div></div>
+</div>
+
+<div class="severity-row" style="margin-bottom:1.5rem">
+    {% for sev, count in report.severity_counts.items() %}
+    <span class="sev {{ {'CRITICAL':'sev-critical','MAJOR':'sev-major','MINOR':'sev-minor'}.get(sev,'sev-minor') }}">{{ sev }} : {{ count }}</span>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>Résultats par module</h2>
+    {% for m in report.module_stats %}
+    <details class="module-block" {% if m.fail > 0 %}open{% endif %}>
+        <summary>
+            <span class="module-title">{{ m.name }}</span>
+            <span class="module-counts text-muted">PASS {{ m.pass }} / FAIL {{ m.fail }} / WARN {{ m.warning }} / SKIP {{ m.skipped }}</span>
+            <span class="module-pct">{% if m.total>0 %}{{ ((m.pass/m.total)*100)|round(1) }}%{% else %}0%{% endif %}</span>
+        </summary>
+        {% if m.total>0 %}<div class="module-bar"><div class="module-bar-fill" style="width:{{ ((m.pass/m.total)*100)|round }}%"></div></div>{% endif %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Statut</th><th>Fonction</th><th>Attendu / Obtenu</th><th>Capture</th></tr>
+            </thead>
+            <tbody>
+            {% for rname, rrows in report.modules.items() if rname == m.name %}
+            {% for r in rrows %}
+            <tr class="row-{{ r.status }}">
+                <td style="width:78px"><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+                <td>
+                    {{ r.function }}
+                    {% if r.action and r.action not in r.function %}<span class="text-muted text-small"> — {{ r.action }}</span>{% endif %}
+                </td>
+                <td class="text-small">
+                    <span class="text-muted">{{ r.expected }}</span>
+                    {% if r.status in ('FAIL', 'WARNING') and r.obtained %}<div class="fail-obtained">Obtenu : {{ r.obtained }}</div>{% endif %}
+                </td>
+                <td style="width:112px">
+                    {% if r.screenshot %}
+                    <a target="_blank" href="{{ url_for('static', filename=r.screenshot) }}" title="Ouvrir la capture">
+                        <img class="shot-thumb tiny" src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}">
+                    </a>
+                    {% else %}<span class="text-muted text-small">—</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+    {% else %}
+    <p class="text-muted">Aucun résultat.</p>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>Anomalies (FAIL)</h2>
+    {% for f in report.failures %}
+    <div class="fail-detail">
+        <p><b>Module :</b> {{ f.module }} &nbsp; <b>Sévérité :</b> {{ f.severity }}</p>
+        <p><b>Fonction :</b> {{ f.function }}</p>
+        <p><b>Action :</b> {{ f.action }}</p>
+        <p><b>Donnée :</b> {{ f.data }}</p>
+        <p><b>Attendu :</b> {{ f.expected }}</p>
+        <p><b>Obtenu :</b> {{ f.obtained }}</p>
+        <p><b>HTTP :</b> {{ f.http_status or '—' }}</p>
+        {% if f.screenshot %}
+        <a target="_blank" href="{{ url_for('static', filename=f.screenshot) }}">
+            <img class="shot-thumb" src="{{ url_for('static', filename=f.screenshot) }}" alt="capture {{ f.function }}">
+        </a>
+        {% endif %}
+    </div>
+    {% else %}
+    <p class="text-success">Aucune anomalie détectée.</p>
+    {% endfor %}
+</div>
+{% endblock %}

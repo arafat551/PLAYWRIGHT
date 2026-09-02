@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Paramètres - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </span>
+            Paramètres
+        </h1>
+        <div class="page-subtitle">Configuration globale du moteur d'exploration et d'exécution</div>
+    </div>
+</div>
+
+<div class="info-banner">
+    Les valeurs ci-dessous complètent le fichier <code>.env</code>. Les clés de sécurité
+    (secret, base de données, mot de passe admin, clé OpenAI) restent volontairement dans
+    <code>.env</code> et jamais exposées dans l'interface.
+</div>
+
+<div class="card">
+    <form method="POST" class="settings-form">
+        {% for key, label, ftype, help in fields %}
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="{{ key }}">{{ label }}</label>
+                <span class="text-muted text-small">{{ help }}</span>
+            </div>
+            <div class="settings-control">
+                {% if ftype == 'bool' %}
+                <select name="{{ key }}" id="{{ key }}">
+                    <option value="1" {{ 'selected' if vals[key]=='1' else '' }}>Oui</option>
+                    <option value="0" {{ 'selected' if vals[key]!='1' else '' }}>Non</option>
+                </select>
+                {% elif ftype == 'int' %}
+                <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
+                {% else %}
+                <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <a href="{{ url_for('dashboard') }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

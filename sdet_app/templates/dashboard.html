@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 9h18M9 21V9"/></svg>
+            </span>
+            TABLEAU DE BORD
+        </h1>
+        <div class="page-subtitle">Vue d'ensemble de votre activité de tests</div>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{ m.total_projects }}</div>
+        <div class="stat-label">Projets</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ m.active_projects }}</div>
+        <div class="stat-label">Projets actifs</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ m.total_tests }}</div>
+        <div class="stat-label">Tests réalisés</div>
+    </div>
+    <div class="stat-card stat-success">
+        <div class="stat-number">{{ m.total_passed }}</div>
+        <div class="stat-label">PASS</div>
+    </div>
+    <div class="stat-card stat-danger">
+        <div class="stat-number">{{ m.total_failed }}</div>
+        <div class="stat-label">FAIL</div>
+    </div>
+    <div class="stat-card stat-warning">
+        <div class="stat-number">{{ m.success_rate }}%</div>
+        <div class="stat-label">Taux de réussite</div>
+    </div>
+</div>
+
+<div class="charts-grid">
+    <div class="card">
+        <h2>Répartition des résultats</h2>
+        <div class="chart-card">
+            <canvas id="donut"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Dernières exécutions</h2>
+        <table class="data-table">
+            <thead>
+                <tr><th>Projet</th><th>Type</th><th>Statut</th><th>Réussite</th></tr>
+            </thead>
+            <tbody>
+                {% for t in m.recent %}
+                <tr>
+                    <td>{{ t.project_name }}</td>
+                    <td>{{ t.run_type }}</td>
+                    <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+                    <td>
+                        {% if t.total and t.total > 0 %}
+                            {{ ((t.passed / t.total) * 100)|round(1) }}%
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-muted text-center">Aucune exécution</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+    const values = [{{ m.total_passed }}, {{ m.total_failed }}, {{ m.total_warning }}, {{ m.total_skipped }}];
+    const labels = ['PASS', 'FAIL', 'WARNING', 'SKIPPED'];
+    const colors = ['#16a34a', '#dc2626', '#d97706', '#94a3b8'];
+    const cv = document.getElementById('donut');
+    if (!cv) return;
+    const holder = cv.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const size = 280;
+    cv.width = size * dpr; cv.height = size * dpr;
+    cv.style.width = size + 'px'; cv.style.height = size + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const cx = size / 2, cy = size / 2, r = 98, sw = 26;
+    const total = values.reduce((a, b) => a + b, 0);
+    let start = -Math.PI / 2;
+    ctx.clearRect(0, 0, size, size);
+    if (total === 0) {
+        ctx.strokeStyle = '#e5e9f2'; ctx.lineWidth = sw;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    }
+    values.forEach((v, i) => {
+        if (!v) return;
+        const ang = (v / total) * 2 * Math.PI;
+        ctx.beginPath(); ctx.strokeStyle = colors[i]; ctx.lineWidth = sw;
+        ctx.arc(cx, cy, r, start, start + ang); ctx.stroke();
+        start += ang;
+    });
+    ctx.fillStyle = '#0f172a'; ctx.font = '700 26px Inter, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(total, cx, cy - 8);
+    ctx.fillStyle = '#8b94a7'; ctx.font = '600 12px Inter, sans-serif';
+    ctx.fillText('tests', cx, cy + 14);
+
+    const lg = document.createElement('div');
+    lg.className = 'donut-legend';
+    labels.forEach((lab, i) => {
+        const item = document.createElement('span');
+        item.className = 'donut-legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'dot'; dot.style.background = colors[i];
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode(lab + ' · ' + values[i]));
+        lg.appendChild(item);
+    });
+    holder.appendChild(lg);
+})();
+</script>
+{% endblock %}

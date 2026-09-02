@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Sélection du parcours - {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            Lancer un parcours de test
+        </h1>
+        <div class="page-subtitle">Cochez les fonctionnalités à suivre à la lettre — {{ project.name }}</div>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Gérer les scénarios</a>
+        <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Retour au projet</a>
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('scenario_run', pid=project.id) }}" id="scenarioForm">
+    <div class="modules-header">
+        <div class="modules-bulk">
+            <button type="button" class="btn-secondary" onclick="setAll(true)">Tout cocher</button>
+            <button type="button" class="btn-secondary" onclick="setAll(false)">Tout décocher</button>
+        </div>
+    </div>
+
+    {% for m in tree %}
+    <div class="card">
+        <label class="page-group-header">
+            <input type="checkbox" class="module-check" data-module="{{ m.id }}" checked>
+            <span class="page-name">{{ m.name }}</span>
+            <span class="page-meta">
+                {% if m.description %}<span class="text-muted text-small">{{ m.description }}</span>{% endif %}
+                <span class="selected-count text-small">0/<span class="total">{{ m.functionalities|length }}</span></span>
+            </span>
+        </label>
+
+        <div class="page-actions-list">
+            {% for f in m.functionalities %}
+            <label class="action-check" data-module="{{ m.id }}">
+                <input type="checkbox" name="functionality_ids" value="{{ f.id }}"
+                       data-module="{{ m.id }}" class="fn-checkbox" checked>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <span class="action-label">{{ f.name }}</span>
+                <span class="action-type">{{ f.steps|length }} étape(s)</span>
+            </label>
+            {% else %}
+            <span class="text-muted text-small">Aucune fonctionnalité.</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card"><p class="text-muted">Aucun scénario défini. Créez d'abord des modules et fonctionnalités.</p></div>
+    {% endfor %}
+
+    <div class="selection-summary">
+        <div class="summary-count">
+            <span class="pill" id="count">0</span>
+            <span class="text-muted">fonctionnalité(s) sélectionnée(s)</span>
+        </div>
+        <div class="run-actions">
+            <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary" id="launchBtn">Lancer le parcours</button>
+        </div>
+    </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function updateCount(){
+    const total = document.querySelectorAll('.fn-checkbox:checked').length;
+    document.getElementById('count').textContent = total;
+    document.getElementById('launchBtn').disabled = total === 0;
+    document.querySelectorAll('.card').forEach(card => {
+        const chk = card.querySelector('.module-check');
+        if(!chk) return;
+        const boxes = card.querySelectorAll('.fn-checkbox');
+        const checked = card.querySelectorAll('.fn-checkbox:checked').length;
+        chk.checked = boxes.length > 0 && checked === boxes.length;
+        chk.indeterminate = checked > 0 && checked < boxes.length;
+        const sc = card.querySelector('.selected-count');
+        if(sc) sc.firstChild.textContent = checked + '/';
+    });
+}
+
+function setAll(checked){
+    document.querySelectorAll('.module-check').forEach(chk => chk.checked = checked);
+    document.querySelectorAll('.fn-checkbox').forEach(c => c.checked = checked);
+    updateCount();
+}
+
+document.querySelectorAll('.module-check').forEach(chk => {
+    chk.addEventListener('change', () => {
+        const mod = chk.dataset.module;
+        document.querySelectorAll(`.fn-checkbox[data-module="${mod}"]`).forEach(c => c.checked = chk.checked);
+        updateCount();
+    });
+});
+document.querySelectorAll('.fn-checkbox').forEach(c => c.addEventListener('change', updateCount));
+document.getElementById('scenarioForm').addEventListener('submit', function(e){
+    if(document.querySelectorAll('.fn-checkbox:checked').length === 0){
+        e.preventDefault();
+        const bar = document.querySelector('.selection-summary');
+        bar.style.borderColor = '#dc2626';
+        setTimeout(()=>{ bar.style.borderColor = ''; }, 1200);
+    }
+});
+updateCount();
+</script>
+{% endblock %}

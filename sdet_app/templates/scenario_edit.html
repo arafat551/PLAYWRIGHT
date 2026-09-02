@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Modifier — {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </span>
+            {% if kind == "functionality" %}Modifier la fonctionnalité{% else %}Modifier l'étape{% endif %}
+        </h1>
+        <div class="page-subtitle">
+            {% if kind == "functionality" %}
+                Scénario du projet
+            {% else %}
+                Fonctionnalité « {{ func.name }} »
+            {% endif %}
+            — {{ project.name }}
+        </div>
+    </div>
+    <div class="run-actions">
+        <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Retour aux scénarios</a>
+    </div>
+</div>
+
+<div class="card form-card">
+    {% if kind == "functionality" %}
+    <h2>Fonctionnalité</h2>
+    <form method="POST" action="{{ url_for('scenario_functionality_edit', pid=project.id, fid=func.id) }}">
+        <label for="name">Nom</label>
+        <input type="text" id="name" name="name" value="{{ func.name }}" required>
+        <label for="url">URL directe (optionnel — le générateur navigue vers cette URL)</label>
+        <input type="text" id="url" name="url" value="{{ func.url or '' }}"
+               placeholder="Ex&nbsp;: https://.../crm/clients">
+        <span class="field-hint">Si renseignée, la génération et le scan naviguent directement vers cette adresse.</span>
+        <label for="path">Chemin de navigation (sous-dossiers, optionnel)</label>
+        <input type="text" id="path" name="path" value="{{ func.path or '' }}"
+               placeholder="Ex&nbsp;: Facturation > Contrats">
+        <span class="field-hint">Niveaux à traverser avant la fonctionnalité, séparés par &gt;.</span>
+        <label for="description">Description <span class="text-muted text-small">(optionnel — les étapes sont gérées séparément)</span></label>
+        <textarea id="description" name="description" rows="2" placeholder="Ex&nbsp;: Créer et valider une nouvelle catégorie">{{ func.description or '' }}</textarea>
+        <div class="form-actions">
+            <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+    {% else %}
+    <h2>Étape</h2>
+    <form method="POST" action="{{ url_for('scenario_step_edit', pid=project.id, sid=step.id) }}">
+        <label for="description">Description de l'étape</label>
+        <textarea id="description" name="description" rows="3" required>{{ step.description }}</textarea>
+        <div class="form-actions">
+            <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
