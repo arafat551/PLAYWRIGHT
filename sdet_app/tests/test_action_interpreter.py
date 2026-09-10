@@ -158,3 +158,14 @@ def test_interpreter_verify_missing_target_passes():
         {"action_type": "VERIFIER", "target": "", "value": "",
          "expected": ""})
     assert status == "PASS"
+
+
+def test_runner_can_execute_structured_actions():
+    """Regression: run_scenarios uses ActionInterpreter and must see it."""
+    import sdet_app.sdet.runner as runner_mod
+
+    assert hasattr(runner_mod, "ActionInterpreter")
+    assert "CLIQUEER" in runner_mod._STRUCTURED_ACTION_TYPES
+    assert "REMPLIR" in runner_mod._STRUCTURED_ACTION_TYPES
+    assert "NAVIGATION" not in runner_mod._STRUCTURED_ACTION_TYPES
+    assert "CREATE" not in runner_mod._STRUCTURED_ACTION_TYPES

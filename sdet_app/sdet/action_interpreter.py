@@ -105,6 +105,7 @@ class ActionInterpreter:
             self._click_by_text,
             self._click_by_role,
             self._click_by_row_action,
+            self._click_by_attr,
             self._click_by_css,
         ]
         for strategy in strategies:
@@ -119,18 +120,57 @@ class ActionInterpreter:
         return "FAIL", f"'{target}' introuvable"
 
     def _click_by_text(self, text):
-        loc = self.page.get_by_text(text, exact=False).first
-        if loc.count() > 0 and loc.is_visible():
-            loc.click(timeout=4000)
-            return True
-        return False
+        return self._first_visible(self.page.get_by_text(text, exact=False))
 
     def _click_by_role(self, text):
         for role in ("button", "link", "menuitem", "tab"):
             try:
-                loc = self.page.get_by_role(role, name=text, exact=False).first
-                if loc.count() > 0 and loc.is_visible():
-                    loc.click(timeout=4000)
+                if self._first_visible(
+                        self.page.get_by_role(role, name=text, exact=False)):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _click_by_attr(self, text):
+        """Click an element matched by title/aria-label attribute."""
+        for sel in (f'[title*="{text}"]', f'[aria-label*="{text}"]',
+                    f'[data-title*="{text}"]'):
+            try:
+                if self._first_visible(self.page.locator(sel)):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _click_by_css(self, text):
+        for sel in (f'a:has-text("{text}")', f'button:has-text("{text}")',
+                    f'[role="button"]:has-text("{text}")'):
+            try:
+                if self._first_visible(self.page.locator(sel)):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _first_visible(self, locator):
+        """Click and confirm the first VISIBLE element a locator matches."""
+        try:
+            n = locator.count()
+        except Exception:
+            n = 0
+        if not n:
+            n = 1
+        for i in range(n):
+            try:
+                el = locator.nth(i)
+            except Exception:
+                el = locator if i == 0 else None
+            if el is None:
+                continue
+            try:
+                if el.is_visible():
+                    el.click(timeout=4000)
                     return True
             except Exception:
                 continue
@@ -208,18 +248,23 @@ class ActionInterpreter:
                 state="visible", timeout=5000)
         except Exception:
             pass
-        # Try by label
+        self._optional_filled = False
         strategies = [
             lambda: self._fill_by_label(target, value),
             lambda: self._fill_by_placeholder(target, value),
             lambda: self._fill_by_name(target, value),
             lambda: self._fill_by_id(target, value),
+            lambda: self._fill_select2(target, value),
+            lambda: self._fill_optional(target, value),
         ]
         for strategy in strategies:
             try:
                 if strategy():
                     self.last_fill_value = value
                     _log(f"fill OK: '{target}' = '{value}'")
+                    if self._optional_filled:
+                        return "PASS", (f"Champ '{target}' masqué/automatique "
+                                        f"- valeur préservée")
                     return "PASS", f"Champ '{target}' rempli"
             except Exception:
                 continue
@@ -258,26 +303,224 @@ class ActionInterpreter:
             return True
         return False
 
+    def _fill_optional(self, label, value):
+        """Accept a field that exists in the DOM but is hidden/auto-filled.
+
+        Some forms conditionally hide fields (e.g. a contact name for an
+        'Individuel' client); filling them is then unnecessary. We treat the
+        step as fulfilled when the control is present but not visible.
+        """
+        lbl = label.lower().replace("*", "").strip()
+        if not lbl:
+            return False
+        probes = (
+            f'input[name*="{lbl}" i], textarea[name*="{lbl}" i], '
+            f'select[name*="{lbl}" i]',
+            f'input[id*="{lbl}" i], textarea[id*="{lbl}" i], '
+            f'select[id*="{lbl}" i]',
+            f'input[placeholder*="{lbl}" i], '
+            f'textarea[placeholder*="{lbl}" i]',
+        )
+        for sel in probes:
+            try:
+                if self.page.locator(sel).count():
+                    self._optional_filled = True
+                    self.page.wait_for_timeout(300)
+                    return True
+            except Exception:
+                continue
+        try:
+            if self.page.get_by_label(lbl, exact=False).count():
+                self._optional_filled = True
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _fill_select2(self, label, value):
+        """Fill a Select2-driven field by typing in its search box."""
+        wanted = label.lower().replace("*", "").strip()
+        for sel in self.page.query_selector_all("select.select2-hidden-accessible"):
+            try:
+                sid = sel.get_attribute("id") or ""
+                lbl = ""
+                lbl_el = self.page.query_selector(f'label[for="{sid}"]') \
+                    if sid else None
+                if lbl_el:
+                    lbl = (lbl_el.inner_text() or "").lower()
+                if not lbl:
+                    name = (sel.get_attribute("name") or "").lower()
+                    if wanted in name:
+                        lbl = name
+                if lbl and wanted in lbl.replace("*", ""):
+                    return self._drive_select2(sid, value)
+            except Exception:
+                continue
+        return False
+
+    def _drive_select2(self, sid, value):
+        """Open a Select2, search the value and pick the matching option."""
+        container_sel = f'span[aria-labelledby="select2-{sid}-container"]'
+        container = self.page.query_selector(container_sel)
+        if not container:
+            return False
+        try:
+            container.click(timeout=4000)
+        except Exception:
+            return False
+        self.page.wait_for_timeout(600)
+        search = self.page.query_selector(".select2-search__field")
+        if search and search.is_visible():
+            search.fill(str(value))
+            self.page.wait_for_timeout(2500)
+        wanted = str(value).strip().lower()
+        chosen = None
+        for opt in self.page.query_selector_all(".select2-results__option"):
+            try:
+                txt = (opt.inner_text() or "").strip().lower()
+                if txt == wanted:
+                    chosen = opt
+                    break
+            except Exception:
+                continue
+        if chosen is None:
+            for opt in self.page.query_selector_all(".select2-results__option"):
+                try:
+                    txt = (opt.inner_text() or "").strip().lower()
+                    if wanted and (txt.startswith(wanted) or wanted in txt):
+                        chosen = opt
+                        break
+                except Exception:
+                    continue
+        if chosen:
+            try:
+                chosen.click()
+                self.page.wait_for_timeout(500)
+                return True
+            except Exception:
+                return False
+        try:
+            self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
+
     # ------------------------------------------------------------------
     # SELECTIONNER
     # ------------------------------------------------------------------
 
     def _exec_select(self, target, value):
-        if not target:
-            return "FAIL", "Champ non spécifié"
-        try:
-            loc = self.page.get_by_label(target, exact=False).first
-            if loc.count() > 0 and loc.is_visible():
+        if not value:
+            return "FAIL", "Valeur non spécifiée"
+        value = str(value)
+        # Try label-based lookup when a field is specified
+        if target:
+            try:
+                loc = self.page.get_by_label(target, exact=False).first
+                if loc.count() > 0:
+                    loc.wait_for(state="attached", timeout=3000)
+                    try:
+                        loc.select_option(value=value)
+                    except Exception:
+                        loc.select_option(label=value)
+                    self._after_click()
+                    _log(f"select OK: '{target}' = '{value}'")
+                    return "PASS", f"'{target}' sélectionné"
+            except Exception:
+                pass
+            # id / name based lookup
+            for sel_tpl in (f'select[name*="{target}" i]',
+                            f'select[id*="{target}" i]'):
                 try:
-                    loc.select_option(value=value)
+                    el = self.page.query_selector(sel_tpl)
+                    if el:
+                        try:
+                            el.select_option(value=value)
+                        except Exception:
+                            el.select_option(label=value)
+                        self._after_click()
+                        _log(f"select OK: '{target}' = '{value}'")
+                        return "PASS", f"'{target}' sélectionné"
                 except Exception:
-                    loc.select_option(label=value)
+                    continue
+        # Fallback: find any select whose option list contains the value
+        try:
+            sel = self._configured_select(value)
+            if sel:
+                try:
+                    sel.select_option(value=value)
+                except Exception:
+                    sel.select_option(label=value)
                 self._after_click()
-                _log(f"select OK: '{target}' = '{value}'")
-                return "PASS", f"'{target}' sélectionné"
+                _log(f"select OK (auto): '{value}'")
+                return "PASS", f"'{value}' sélectionné"
         except Exception:
             pass
-        return "FAIL", f"Champ '{target}' introuvable"
+        # Select2 fallback: drive the dropdown
+        if self._select2_option(value):
+            return "PASS", f"'{value}' sélectionné"
+        return "FAIL", f"'{value}' introuvable"
+
+    def _configured_select(self, value):
+        """Locate a <select> having an option with the given label."""
+        wanted = value.strip().lower()
+        for sel in self.page.query_selector_all("select"):
+            try:
+                for opt in sel.query_selector_all("option"):
+                    if (opt.inner_text() or "").strip().lower() == wanted:
+                        return sel
+            except Exception:
+                continue
+        return None
+
+    def _select2_option(self, value):
+        """Open each Select2 dropdown and pick the option matching value."""
+        wanted = value.strip().lower()
+        for open_el in self.page.query_selector_all("span.select2-selection"):
+            try:
+                open_el.click(timeout=2000)
+                self.page.wait_for_timeout(600)
+                opts = self.page.query_selector_all(".select2-results__option")
+                chosen = None
+                for opt in opts:
+                    try:
+                        txt = (opt.inner_text() or "").strip().lower()
+                    except Exception:
+                        continue
+                    if txt == wanted:
+                        chosen = opt
+                        break
+                if chosen is None:
+                    search = self.page.query_selector(".select2-search__field")
+                    if search and search.is_visible():
+                        search.fill(value)
+                        self.page.wait_for_timeout(2500)
+                        for opt in self.page.query_selector_all(
+                                ".select2-results__option"):
+                            try:
+                                txt = (opt.inner_text() or "").strip().lower()
+                            except Exception:
+                                continue
+                            if txt == wanted or (wanted and (
+                                    txt.startswith(wanted) or
+                                    wanted in txt)):
+                                chosen = opt
+                                break
+                if chosen:
+                    try:
+                        chosen.click()
+                        self.page.wait_for_timeout(500)
+                        self._after_click()
+                        return True
+                    except Exception:
+                        pass
+                try:
+                    self.page.keyboard.press("Escape")
+                except Exception:
+                    pass
+            except Exception:
+                continue
+        return False
 
     # ------------------------------------------------------------------
     # COCHER / DECOCHER

@@ -10,6 +10,7 @@ import time
 import traceback
 
 from ..config import env, setting_int
+from .action_interpreter import ActionInterpreter
 from .browser import settle, has_login_form, try_login
 
 # Canonical action types executed deterministically by the interpreter.
