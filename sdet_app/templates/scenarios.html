@@ -491,6 +491,39 @@ document.getElementById('scenarioForm').addEventListener('submit', function(e){
         setTimeout(()=>{ bar.style.borderColor = ''; }, 1200);
     }
 });
+
+// --- "+" popovers (ajout fonctionnalité / étape) -------------------------
+// Un seul panneau ouvert à la fois, fermeture au clic extérieur ou Échap,
+// et défilement pour que le panneau reste visible même en bas de page.
+function closeAllFnPanels(except){
+    document.querySelectorAll('details.fn-details[open]').forEach(d => {
+        if(d !== except) d.removeAttribute('open');
+    });
+}
+document.querySelectorAll('details.fn-details > summary').forEach(s => {
+    s.addEventListener('click', () => {
+        const det = s.parentElement;
+        if(!det.hasAttribute('open')){
+            // Ferme les autres avant l'ouverture effective du toggle.
+            closeAllFnPanels(null);
+            setTimeout(() => {
+                const panel = det.querySelector('.fn-steps-panel');
+                if(panel && det.hasAttribute('open')){
+                    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    const firstInput = panel.querySelector('input[type="text"], select');
+                    if(firstInput) firstInput.focus({ preventScroll: true });
+                }
+            }, 0);
+        }
+    });
+});
+document.addEventListener('click', (e) => {
+    if(!e.target.closest('details.fn-details')) closeAllFnPanels(null);
+});
+document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') closeAllFnPanels(null);
+});
+
 updateCount();
 </script>
 {% endblock %}

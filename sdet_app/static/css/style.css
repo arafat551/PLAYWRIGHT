@@ -78,6 +78,7 @@ a:hover { text-decoration: none; }
 /* Scrollbars */
 * { scrollbar-width: thin; scrollbar-color: #c6ccda transparent; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
+
 ::-webkit-scrollbar-thumb { background: #c6ccda; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
@@ -871,10 +872,20 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 1rem;
-  overflow: hidden;
+  /* overflow: visible (was hidden) — overflow:hidden clipped the absolutely
+     positioned "+" popovers (.fn-steps-panel) that open below the last rows
+     of a module, making them impossible to fill in. */
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+/* Rounded corners are handled per-child since we can no longer rely on
+   overflow clipping to keep children inside the rounded border. */
+.page-group > .page-group-header:first-child {
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+}
+.page-group > :last-child {
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
 }
 .page-group:has(.page-check:checked) { border-color: #c7c9f7; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.07), var(--shadow-sm); }
 
@@ -1522,7 +1533,9 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   right: 0.5rem;
   width: auto;
   max-width: none;
-  z-index: 45;
+  /* Above the sticky .selection-summary bar (z-index: 50), otherwise that bar
+     covers the panel inputs when it opens near the bottom of the page. */
+  z-index: 60;
   box-shadow: var(--shadow-lg);
 }
 
@@ -1534,7 +1547,10 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 40;
+  /* Same as above: stay above the sticky selection bar (z-index: 50). */
+  z-index: 60;
+  /* Make scrollIntoView leave room for the sticky bar below the panel. */
+  scroll-margin-bottom: 5.5rem;
   width: 380px;
   max-width: 90vw;
   background: var(--surface);
