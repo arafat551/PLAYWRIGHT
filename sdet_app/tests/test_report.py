@@ -43,3 +43,46 @@ def test_report_html_render():
     assert "RAPPORT AUTOMATION" in html
     assert "COBRA" in html
     assert "50.0" in html
+
+
+def test_report_page_bug_cards(client, login, _init_db):
+    """The report page shows copy-ready bug cards instead of the old
+    'Anomalies (FAIL)' section: per-failure title, reproduction steps,
+    environment and a copy button."""
+    from sdet_app import database
+
+    pid = database.create_project(
+        {"name": "BUGPROJ", "url": "https://bug.test", "email": "a@b.test",
+         "password": "pw", "auth_type": "simple", "environment": "STAGING",
+         "comments": ""}, encrypt=lambda p: p)
+    tid = database.create_test_run(pid, "Test", "qa@example.com", [])
+    database.save_result(tid, {
+        "module": "CRM", "function": "Clients",
+        "action": "Étape 1/2: Ouvrir la page clients", "data": "",
+        "status": "PASS", "severity": "",
+        "expected": "Page chargée", "obtained": "OK"})
+    database.save_result(tid, {
+        "module": "CRM", "function": "Clients",
+        "action": "Étape 2/2: Cliquer sur Ajouter", "data": "QA_001",
+        "status": "FAIL", "severity": "MAJOR",
+        "expected": "Formulaire ouvert", "obtained": "Bouton introuvable"},
+        "screenshots/shot_1.png", 0)
+
+    html = client.get(f"/reports/{tid}").get_data(as_text=True)
+
+    # Old section removed
+    assert "Anomalies (FAIL)" not in html
+    # New section present
+    assert "Rapports de bug prêts à copier" in html
+    assert "Tout copier (1)" in html
+    assert "CRM — Clients" in html
+    assert "MAJOR" in html
+    assert "Étapes de reproduction" in html
+    assert "Étape 1/2: Ouvrir la page clients" in html
+    assert "Bouton introuvable" in html
+    assert "bug-markdown" in html
+    assert 'onclick="copyBug(this)"' in html
+    assert "Aucun bug détecté" not in html
+
+    database.delete_test_run(tid)
+    database.delete_project(pid)

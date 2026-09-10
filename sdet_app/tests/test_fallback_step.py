@@ -30,6 +30,8 @@ _PAGE_HTML = """\
   table { width: 100%; border-collapse: collapse; margin-top: 16px; }
   th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
   th { background: #f7fafc; font-weight: 600; }
+  /* Row-action icon links: give them a real size for visibility checks */
+  a.edit-service, a.delete-service { display: inline-block; padding: 4px; }
   /* Search bar */
   .search-bar { margin-bottom: 16px; }
   .search-bar input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;
@@ -54,6 +56,11 @@ _PAGE_HTML = """\
        onclick="document.getElementById('add-form').style.display='block';
                 document.getElementById('log').textContent += 'ADDClicked;'">
     Ajouter
+  </div>
+  <div class="btn btn-primary" id="btn-view-details" title="Voir les détails"
+       style="margin-left: 8px"
+       onclick="document.getElementById('log').textContent += 'VIEWDetailsClicked;'">
+    <i class="fa fa-eye"></i>
   </div>
 </div>
 
@@ -363,6 +370,80 @@ class TestFallbackStep:
         code_val = live_page.evaluate("document.getElementById('field-code').value")
         assert "Catégorie Test" in name_val
         assert "CAT001" in code_val
+
+    # --- Button title as a selector ------------------------------------
+    def test_parse_click_button_full_label(self, live_page):
+        """'Cliquer sur le bouton voir les détails' must use the WHOLE label
+        as the target (the title of the button), not just the first word."""
+        runner = _make_runner(live_page)
+        action, target, value = runner._parse_step_intent(
+            "Cliquer sur le bouton voir les détails")
+        assert action == "click"
+        assert target.lower() == "voir les détails"
+
+    def test_parse_click_button_typo(self, live_page):
+        """'button' (EN typo) and elisions must still extract the full label."""
+        runner = _make_runner(live_page)
+        action, target, value = runner._parse_step_intent(
+            "Clique sur le button voir les detail")
+        assert action == "click"
+        assert target.lower() == "voir les detail"
+
+    def test_parse_default_click_extracts_button_label(self, live_page):
+        """A generic button label (not in a CRUD keyword group) is used as-is."""
+        runner = _make_runner(live_page)
+        action, target, value = runner._parse_step_intent(
+            "Cliquer sur le bouton Tous")
+        assert action == "click"
+        assert target.lower() == "tous"
+
+    def test_collect_state_uses_title_for_icon_buttons(self, live_page):
+        """Icon-only buttons (no inner text) get their title as the label."""
+        runner = _make_runner(live_page)
+        state = runner._collect_page_state()
+        labels = [el["label"].lower() for el in state]
+        # view-details is an icon-only button whose title is 'Voir les détails'
+        assert any("voir les détails" in l for l in labels)
+        # row-action icon links expose their titles too
+        assert any("modifier les détails" in l for l in labels)
+        assert any("supprimer les détails" in l for l in labels)
+
+    def test_click_icon_button_by_title(self, live_page):
+        """'Cliquer sur le bouton voir les détails' clicks the icon-only button
+        whose title matches, even outside a table row."""
+        runner = _make_runner(live_page)
+        _reset_log(live_page)
+        ok = runner._fallback_step("Cliquer sur le bouton voir les détails")
+        assert ok is True
+        assert "VIEWDetailsClicked" in _get_log(live_page)
+
+    def test_parse_navigate_url_step(self, live_page):
+        """'revient sur https://...' must parse as a direct URL navigation,
+        not a click on the full sentence (which derails the fuzzy fallback)."""
+        runner = _make_runner(live_page)
+        action, target, value = runner._parse_step_intent(
+            "revient sur 🔗 https://kpip.kprimesoft.com/crm/clients")
+        assert action == "navigate"
+        assert target == "https://kpip.kprimesoft.com/crm/clients"
+        assert value == ""
+
+    def test_parse_navigate_url_other_verbs(self, live_page):
+        runner = _make_runner(live_page)
+        action, target, _ = runner._parse_step_intent(
+            "aller vers https://kpip.kprimesoft.com/crm/clients?page=2")
+        assert action == "navigate"
+        assert target == "https://kpip.kprimesoft.com/crm/clients?page=2"
+
+    def test_fallback_navigate_goto(self, live_page, monkeypatch):
+        """The navigate action actually calls session.goto with the URL."""
+        runner = _make_runner(live_page)
+        calls = []
+        monkeypatch.setattr(runner.session, "goto",
+                            lambda url, timeout=20000: calls.append(url))
+        ok = runner._fallback_step(
+            "revient sur https://kpip.kprimesoft.com/crm/clients")
+        assert ok is True
+        assert calls == ["https://kpip.kprimesoft.com/crm/clients"]
 
 
 # -----------------------------------------------------------------------

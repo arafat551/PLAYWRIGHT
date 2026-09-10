@@ -56,8 +56,18 @@ class BrowserSession:
         page.on("console", on_console)
 
     def goto(self, url, wait="domcontentloaded", timeout=None):
-        return self.page.goto(url, wait_until=wait,
-                              timeout=timeout or setting_int("page_timeout", env.PAGE_TIMEOUT))
+        t = timeout or setting_int("page_timeout", env.PAGE_TIMEOUT)
+        try:
+            return self.page.goto(url, wait_until=wait, timeout=t)
+        except Exception as e:
+            msg = str(e).lower()
+            if "net::err" in msg or "network" in msg or "timeout" in msg:
+                try:
+                    return self.page.goto(url, wait_until="commit",
+                                          timeout=min(t * 2, 90000))
+                except Exception:
+                    pass
+            raise
 
     def close(self):
         try:
@@ -109,10 +119,14 @@ def try_login(page, email, password):
 
 def settle(page):
     try:
-        page.wait_for_load_state("networkidle", timeout=6000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
     except Exception:
         pass
     try:
-        page.wait_for_timeout(600)
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    try:
+        page.wait_for_timeout(800)
     except Exception:
         pass

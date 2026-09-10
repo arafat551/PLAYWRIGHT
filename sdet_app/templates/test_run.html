@@ -100,6 +100,9 @@
 <script>
 {% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
 setInterval(()=>{ location.reload(); }, 3000);
+{% elif test.status in ('completed','failed','cancelled') %}
+// Le test est terminé : ouvrir automatiquement le rapport généré.
+window.location.replace("{{ url_for('report_detail', tid=test.id) }}");
 {% endif %}
 </script>
 {% endblock %}

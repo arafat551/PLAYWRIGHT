@@ -11,12 +11,11 @@ import time
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify)
 
-from flask import (Flask, render_template, request, redirect, url_for,
-                   session, flash, jsonify)
-
 from .config import env, get_setting, apply_settings
 from . import database, security
 from .sdet import planner, engine, generator
+from .sdet.action_library import list_action_types, _human_description
+from .sdet.planner import build_scenarios
 
 app = Flask(__name__, static_folder=env.STATIC_DIR, template_folder=env.TEMPLATE_DIR)
 app.secret_key = env.SECRET_KEY
@@ -36,6 +35,15 @@ def _prune_generations(now):
         g = _generations[fid]
         if g["status"] != "running" and now - g.get("finished", 0) > 120:
             del _generations[fid]
+
+
+def _step_desc(step):
+    """Return a human-readable description for a structured step dict."""
+    if not isinstance(step, dict):
+        return str(step)
+    atype = (step.get("action_type") or "").upper()
+    return _human_description(atype, step.get("target", ""),
+                              step.get("value", ""))
 
 
 # Whole-app / module scans (single background pass upstream of generation)
@@ -79,6 +87,12 @@ def login_required(f):
 @app.route("/")
 def index():
     return redirect(url_for("dashboard") if "user_id" in session else url_for("login"))
+
+
+@app.route("/api/action-types")
+def api_action_types():
+    """Return the catalog of standardized actions as JSON."""
+    return jsonify(list_action_types())
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -447,7 +461,12 @@ def scenario_step_create(pid, fid):
     if not description:
         flash("Le libellé de l'étape est obligatoire", "error")
         return redirect(url_for("project_scenarios", pid=pid))
-    database.add_step(fid, description)
+    atype = request.form.get("action_type", "") or ""
+    target = request.form.get("target", "") or ""
+    value = request.form.get("value", "") or ""
+    expected = request.form.get("expected", "") or ""
+    database.add_step(fid, description, action_type=atype, target=target,
+                      value=value, expected=expected)
     flash("Étape ajoutée", "success")
     return redirect(url_for("project_scenarios", pid=pid))
 
@@ -496,7 +515,15 @@ def scenario_functionality_generate(pid, fid):
                 _generations[fid]["error"] = err
             else:
                 for s in steps:
-                    database.add_step(fid, s)
+                    if isinstance(s, dict):
+                        database.add_step(
+                            fid, s.get("description") or _step_desc(s),
+                            action_type=s.get("action_type", ""),
+                            target=s.get("target", ""),
+                            value=s.get("value", ""),
+                            expected=s.get("expected", ""))
+                    else:
+                        database.add_step(fid, s)
                 _generations[fid]["status"] = "done"
                 _generations[fid]["steps"] = steps
             _generations[fid]["finished"] = time.time()
@@ -578,7 +605,15 @@ def scenario_module_generate(pid, mid):
                     mid, r["functionality"], description="", path=r.get("path", ""),
                     url=r.get("url", ""))
                 for s in r["steps"]:
-                    database.add_step(fid, s)
+                    if isinstance(s, dict):
+                        database.add_step(
+                            fid, s.get("description") or _step_desc(s),
+                            action_type=s.get("action_type", ""),
+                            target=s.get("target", ""),
+                            value=s.get("value", ""),
+                            expected=s.get("expected", ""))
+                    else:
+                        database.add_step(fid, s)
             fn_count = len(results)
             _set_scan(key, status="done", message=None,
                       count=fn_count, finished=time.time())
@@ -652,7 +687,15 @@ def scenario_scan_all(pid):
                         mid, fn["functionality"], description="",
                         path=fn.get("path", ""), url=fn.get("url", ""))
                     for s in fn["steps"]:
-                        database.add_step(fid, s)
+                        if isinstance(s, dict):
+                            database.add_step(
+                                fid, s.get("description") or _step_desc(s),
+                                action_type=s.get("action_type", ""),
+                                target=s.get("target", ""),
+                                value=s.get("value", ""),
+                                expected=s.get("expected", ""))
+                        else:
+                            database.add_step(fid, s)
             total = sum(len(m["functionalities"]) for m in modules)
             _set_scan(key, status="done", message=None,
                       count=total, finished=time.time())
@@ -734,7 +777,12 @@ def scenario_step_edit(pid, sid):
         if not description:
             flash("La description est obligatoire", "error")
             return redirect(url_for("scenario_step_edit", pid=pid, sid=sid))
-        database.update_step(sid, description)
+        atype = request.form.get("action_type", "") or None
+        target = request.form.get("target", "") or ""
+        value = request.form.get("value", "") or ""
+        expected = request.form.get("expected", "") or ""
+        database.update_step(sid, description, action_type=atype,
+                             target=target, value=value, expected=expected)
         flash("Étape mise à jour", "success")
         return redirect(url_for("project_scenarios", pid=pid))
     func = database.get_functionality(step["functionality_id"])
@@ -1104,6 +1152,10 @@ def _build_ai_plan(pid, fids):
     as a single natural-language instruction, so the runner can drive the
     browser through them. Returns (plan, count) or (None, 0) if nothing
     selected.
+
+    When a functionality's stored steps are structured (they carry a canonical
+    action_type), they are emitted as individual interpreter steps instead of
+    free text.
     """
     fids = [int(f) for f in fids if str(f).isdigit()]
     if not fids:
@@ -1120,9 +1172,36 @@ def _build_ai_plan(pid, fids):
         path = (fn.get("path") or "").strip()
         folder_path = _parse_path(path)
         steps = database.list_steps(fid)
-        step_texts = [s["description"] for s in steps if s["description"]]
         fn_desc = (fn.get("description") or "").strip()
 
+        structured = [
+            {
+                "action_type": (s.get("action_type") or "").upper(),
+                "target": s.get("target") or "",
+                "value": s.get("value") or "",
+                "expected": s.get("expected") or "",
+                "module": module_name,
+                "function": fn["name"],
+            }
+            for s in steps
+            if (s.get("action_type") or "").upper() in
+            _STRUCTURED_KEYS_FOR_PLAN
+        ]
+        if structured:
+            furl = (fn.get("url") or "").strip()
+            if furl:
+                plan.append({
+                    "action_type": "NAVIGUER",
+                    "target": furl,
+                    "value": "",
+                    "expected": "Page chargée",
+                    "module": module_name,
+                    "function": fn["name"],
+                })
+            plan.extend(structured)
+            continue
+
+        step_texts = [s["description"] for s in steps if s["description"]]
         # Si pas d'étapes explicites, parser la description en étapes
         # individuelles pour que l'IA les exécute une par une.
         if not step_texts and fn_desc:
@@ -1151,6 +1230,13 @@ def _build_ai_plan(pid, fids):
             "steps": step_texts,
         })
     return plan, len(plan)
+
+
+_STRUCTURED_KEYS_FOR_PLAN = frozenset([
+    "NAVIGUER", "CLIQUEER", "REMPLIR", "SELECTIONNER", "COCHER",
+    "DECOCHER", "RECHERCHER", "VERIFIER", "ATTENDRE", "ECRAN",
+    "SELECTIONNER_LIGNE",
+])
 
 
 def _parse_path(path):

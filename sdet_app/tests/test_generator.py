@@ -428,6 +428,7 @@ def test_scan_survives_single_functionality_iteration_error(monkeypatch):
     assert err is None
     assert [r["functionality"] for r in results] == \
         ["CRM", "Clients", "Contrats"]
-    # The flaky screen still gets runnable (generic fallback) steps.
-    assert "CRÉATION" in results[1]["steps"]
-    assert "QA_CONTRAT_999999" in results[2]["steps"][1]
+    # The flaky screen still gets runnable (navigation fallback) steps.
+    assert results[1]["steps"][0]["action_type"] == "VERIFIER"
+    assert "clients se charge" in results[1]["steps"][0]["target"].lower()
+    assert "QA_CONTRAT_999999" in str(results[2]["steps"][1])

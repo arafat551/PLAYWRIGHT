@@ -706,6 +706,13 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
   font-weight: 550;
 }
 .info-banner em { font-weight: 400; }
+.info-banner .info-steps-description {
+  margin: 0.6rem 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--brand-200, rgba(74, 105, 196, 0.35));
+  font-weight: 400;
+  line-height: 1.55;
+}
 
 /* ==========================================================================
    Field hints (form guidance)
@@ -1325,6 +1332,17 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   color: var(--text-2);
 }
 .step-list .step-text { flex: 1; }
+.step-action-badge {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--brand-050, #eef2ff);
+  color: var(--brand-600, #4f46e5);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
 .step-list-inline { margin: 0.5rem 0 0 0; }
 .step-list-inline li { border-bottom: 1px dashed var(--border); }
 .step-section-title {
@@ -1622,4 +1640,88 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
 .fn-text-row.is-disabled .fn-text-title {
   text-decoration: line-through;
   color: var(--muted);
+}
+/* ==========================================================================
+   Bug-report cards (QA → dev) — report page
+   ========================================================================== */
+
+.bug-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.bug-card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--danger-600);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin: 0.9rem 0;
+  background: var(--surface);
+}
+.bug-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.bug-title {
+  font-weight: 700;
+  flex: 1;
+  min-width: 200px;
+}
+.bug-summary {
+  margin: 0.6rem 0;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+.bug-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.2rem;
+  margin-top: 0.6rem;
+}
+@media (max-width: 720px) {
+  .bug-grid { grid-template-columns: 1fr; }
+}
+.bug-col b {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+}
+.bug-steps {
+  margin: 0;
+  padding-left: 1.3rem;
+  font-size: 0.86rem;
+  line-height: 1.8;
+}
+.bug-steps .badge {
+  margin-right: 0.35rem;
+}
+.btn-copy {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.btn-copy:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.btn-copy:active { transform: translateY(1px); }
+.btn-copy.copied {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
 }

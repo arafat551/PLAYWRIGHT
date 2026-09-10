@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS test_steps (
     functionality_id INTEGER NOT NULL,
     step_order INTEGER DEFAULT 0,
     description TEXT NOT NULL,
+    action_type TEXT DEFAULT '',
+    target TEXT DEFAULT '',
+    value TEXT DEFAULT '',
+    expected TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (functionality_id) REFERENCES test_functionalities(id) ON DELETE CASCADE
 );
@@ -166,6 +170,13 @@ def init_db(path=None):
     mcols = [r[1] for r in db.execute("PRAGMA table_info(test_modules)").fetchall()]
     if "url" not in mcols:
         db.execute("ALTER TABLE test_modules ADD COLUMN url TEXT DEFAULT ''")
+
+    # Migration: add structured action columns to test_steps
+    scols = [r[1] for r in db.execute("PRAGMA table_info(test_steps)").fetchall()]
+    for col, default in [("action_type", ""), ("target", ""),
+                         ("value", ""), ("expected", "")]:
+        if col not in scols:
+            db.execute(f"ALTER TABLE test_steps ADD COLUMN {col} TEXT DEFAULT '{default}'")
 
     # Bootstrap admin if no user exists
     cur = db.execute("SELECT id FROM users LIMIT 1")
@@ -335,14 +346,16 @@ def list_steps(fid):
     return [dict(r) for r in rows]
 
 
-def add_step(fid, description):
+def add_step(fid, description, action_type="", target="", value="", expected=""):
     db = get_connection()
     nxt = db.execute(
         "SELECT COALESCE(MAX(step_order),0)+1 FROM test_steps WHERE functionality_id=?",
         (fid,)).fetchone()[0]
     cur = db.execute(
-        "INSERT INTO test_steps (functionality_id, step_order, description) VALUES (?,?,?)",
-        (fid, nxt, description))
+        """INSERT INTO test_steps
+           (functionality_id, step_order, description, action_type, target, value, expected)
+           VALUES (?,?,?,?,?,?,?)""",
+        (fid, nxt, description, action_type, target, value, expected))
     db.commit()
     sid = cur.lastrowid
     db.close()
@@ -364,9 +377,18 @@ def update_functionality(fid, name, description="", path="", url=""):
     db.close()
 
 
-def update_step(sid, description):
+def update_step(sid, description, action_type=None, target=None, value=None,
+                expected=None):
     db = get_connection()
-    db.execute("UPDATE test_steps SET description=? WHERE id=?", (description, sid))
+    if action_type is not None:
+        db.execute(
+            """UPDATE test_steps SET description=?, action_type=?,
+               target=?, value=?, expected=? WHERE id=?""",
+            (description, action_type, target or "", value or "",
+             expected or "", sid))
+    else:
+        db.execute("UPDATE test_steps SET description=? WHERE id=?",
+                   (description, sid))
     db.commit()
     db.close()
 

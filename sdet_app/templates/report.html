@@ -87,24 +87,122 @@
 </div>
 
 <div class="card">
-    <h2>Anomalies (FAIL)</h2>
-    {% for f in report.failures %}
-    <div class="fail-detail">
-        <p><b>Module :</b> {{ f.module }} &nbsp; <b>Sévérité :</b> {{ f.severity }}</p>
-        <p><b>Fonction :</b> {{ f.function }}</p>
-        <p><b>Action :</b> {{ f.action }}</p>
-        <p><b>Donnée :</b> {{ f.data }}</p>
-        <p><b>Attendu :</b> {{ f.expected }}</p>
-        <p><b>Obtenu :</b> {{ f.obtained }}</p>
-        <p><b>HTTP :</b> {{ f.http_status or '—' }}</p>
-        {% if f.screenshot %}
-        <a target="_blank" href="{{ url_for('static', filename=f.screenshot) }}">
-            <img class="shot-thumb" src="{{ url_for('static', filename=f.screenshot) }}" alt="capture {{ f.function }}">
-        </a>
+    <div class="bug-section-head">
+        <h2>Rapports de bug prêts à copier</h2>
+        {% if report.failures %}
+        <button type="button" class="btn-copy" onclick="copyAllBugs(this)">📋 Tout copier ({{ report.failures|length }})</button>
         {% endif %}
     </div>
+    <p class="text-muted">Un ticket structuré par anomalie : copiez-le tel quel dans Jira / Redmine / Slack pour décrire le bug aux développeurs, avec les étapes de reproduction et la capture d'écran.</p>
+
+    {% set ns = namespace(prev=0, bugs=[]) %}
+    {% for r in results %}
+    {% if r.status == 'FAIL' %}
+    {% set _ = ns.bugs.append({'f': r, 'repro': results[ns.prev:loop.index0+1]}) %}
+    {% set ns.prev = loop.index0 + 1 %}
+    {% endif %}
+    {% endfor %}
+
+    {% for bug in ns.bugs %}
+    {% set f = bug.f %}
+    <div class="bug-card">
+        <div class="bug-card-head">
+            <span class="badge badge-FAIL">FAIL</span>
+            <span class="sev {{ {'CRITICAL':'sev-critical','MAJOR':'sev-major','MINOR':'sev-minor'}.get((f.severity or '').upper(),'sev-minor') }}">{{ f.severity or 'MAJOR' }}</span>
+            <span class="bug-title">{{ f.module }} — {{ f.function }}</span>
+            <button type="button" class="btn-copy" onclick="copyBug(this)">📋 Copier</button>
+        </div>
+        <p class="bug-summary">
+            L'étape « {{ f.action }} » a échoué.{% if f.data %} <span class="text-muted">Donnée : {{ f.data }}</span>{% endif %}
+            <br><span class="text-muted">Attendu : {{ f.expected }}</span>
+            <br><span class="fail-obtained">Obtenu : {{ f.obtained }}{% if f.http_status %} · HTTP {{ f.http_status }}{% endif %}</span>
+        </p>
+        <div class="bug-grid">
+            <div class="bug-col">
+                <b>Étapes de reproduction</b>
+                <ol class="bug-steps">
+                    {% for s in bug.repro %}
+                    <li><span class="badge badge-{{ s.status }}">{{ s.status }}</span> {{ s.action or s.function }}</li>
+                    {% endfor %}
+                </ol>
+            </div>
+            <div class="bug-col">
+                <b>Environnement</b>
+                <p class="text-small text-muted">
+                    Projet : {{ test.project_name }}<br>
+                    Environnement : {{ report.environment }}<br>
+                    Date : {{ report.date }} · Durée : {{ report.duration }}<br>
+                    Lancé par : {{ report.launched_by }}
+                </p>
+                {% if f.screenshot %}
+                <a target="_blank" href="{{ url_for('static', filename=f.screenshot) }}">
+                    <img class="shot-thumb" src="{{ url_for('static', filename=f.screenshot) }}" alt="capture {{ f.function }}">
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        <pre class="bug-markdown" hidden>## 🐛 [{{ (f.severity or 'MAJOR').upper() }}] {{ f.module }} — {{ f.function }}
+
+**Résumé :** l'étape « {{ f.action }} » a échoué.
+- Attendu : {{ f.expected }}
+- Obtenu : {{ f.obtained }}
+{% if f.http_status %}- HTTP : {{ f.http_status }}
+{% endif %}{% if f.data %}- Donnée : {{ f.data }}
+{% endif %}
+**Étapes de reproduction :**
+{% for s in bug.repro %}{{ loop.index }}. [{{ s.status }}] {{ s.action or s.function }}
+{% endfor %}
+**Environnement :**
+- Projet : {{ test.project_name }}
+- Environnement : {{ report.environment }}
+- Date : {{ report.date }}
+- Durée : {{ report.duration }}
+- Lancé par : {{ report.launched_by }}
+{% if f.screenshot %}
+**Capture :** {{ url_for('static', filename=f.screenshot) }}
+{% endif %}</pre>
+    </div>
     {% else %}
-    <p class="text-success">Aucune anomalie détectée.</p>
+    <p class="text-success">Aucun bug détecté — rien à copier 🎉</p>
     {% endfor %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function _copyText(text){
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject){
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        try { document.execCommand('copy'); resolve(); }
+        catch(e){ reject(e); }
+        document.body.removeChild(ta);
+    });
+}
+function _markdownOf(pre){
+    return pre.textContent.split('\n').map(function(l){ return l.trimStart(); }).join('\n').trim();
+}
+function _flashCopied(btn){
+    var old = btn.textContent;
+    btn.textContent = '✅ Copié !';
+    btn.classList.add('copied');
+    setTimeout(function(){ btn.textContent = old; btn.classList.remove('copied'); }, 1600);
+}
+function copyBug(btn){
+    var pre = btn.closest('.bug-card').querySelector('.bug-markdown');
+    _copyText(_markdownOf(pre)).then(function(){ _flashCopied(btn); }).catch(function(){});
+}
+function copyAllBugs(btn){
+    var pres = btn.closest('.card').querySelectorAll('.bug-markdown');
+    var parts = [];
+    for (var i=0;i<pres.length;i++) parts.push(_markdownOf(pres[i]));
+    _copyText(parts.join('\n\n---\n\n')).then(function(){ _flashCopied(btn); }).catch(function(){});
+}
+</script>
 {% endblock %}

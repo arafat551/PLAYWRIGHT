@@ -10,6 +10,15 @@ from . import browser, explorer, planner, reporter
 from .browser import open_session, has_login_form, try_login
 
 
+def _log(msg):
+    ts = time.strftime("%H:%M:%S")
+    print(f"[ENGINE {ts}] {msg}", flush=True)
+
+
+def _log_net_err(url, e):
+    _log(f"Erreur réseau sur {url}: {e}")
+
+
 def _project_dict(pid):
     p = database.get_project(pid)
     if not p:
@@ -37,7 +46,17 @@ def run_exploration(tid, pid):
             session.goto(project["url"])
             browser.settle(page)
         except Exception as e:
-            raise RuntimeError(f"Exploration - impossible de charger l'URL: {e}")
+            msg = str(e).lower()
+            if "net::err" in msg or "network" in msg:
+                _log_net_err(project["url"], e)
+                try:
+                    session.goto(project["url"], wait_for="commit",
+                                 timeout=60000)
+                    browser.settle(page)
+                except Exception:
+                    raise RuntimeError(f"Exploration - impossible de charger l'URL: {e}")
+            else:
+                raise RuntimeError(f"Exploration - impossible de charger l'URL: {e}")
 
         # Login
         if project.get("auth_type") != "none" and has_login_form(page):
@@ -125,7 +144,17 @@ def run_test(tid, pid, plan):
             session.goto(project["url"])
             browser.settle(page)
         except Exception as e:
-            raise RuntimeError(f"Test - impossible de charger l'URL: {e}")
+            msg = str(e).lower()
+            if "net::err" in msg or "network" in msg:
+                _log_net_err(project["url"], e)
+                try:
+                    session.goto(project["url"], wait_for="commit",
+                                 timeout=60000)
+                    browser.settle(page)
+                except Exception:
+                    raise RuntimeError(f"Test - impossible de charger l'URL: {e}")
+            else:
+                raise RuntimeError(f"Test - impossible de charger l'URL: {e}")
 
         if project.get("auth_type") != "none" and has_login_form(page):
             try_login(page, project.get("email", ""),
