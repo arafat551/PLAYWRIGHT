@@ -65,20 +65,20 @@
     <h2>Historique</h2>
     <table class="data-table">
         <thead>
-            <tr><th>Date</th><th>Type</th><th>Tests</th><th>PASS</th><th>FAIL</th><th>Warning</th><th>Réussite</th><th>Lancé par</th><th>Rapport</th></tr>
+            <tr><th>Date</th><th>Type</th><th>Étapes</th><th>PASS</th><th>FAIL</th><th>Warn</th><th>Réussite</th><th>Lancé par</th><th>Rapport</th></tr>
         </thead>
         <tbody>
             {% for t in tests %}
             <tr>
-                <td>{{ (t.started_at or '')[:16] }}</td>
+                <td class="text-small">{{ (t.started_at or '') | dt_fr_short }}</td>
                 <td>{{ t.run_type }}</td>
                 <td>{{ t.total }}</td>
                 <td class="text-success">{{ t.passed }}</td>
                 <td class="text-danger">{{ t.failed }}</td>
                 <td class="text-warning">{{ t.warning }}</td>
                 <td>{% if t.total and t.total>0 %}{{ ((t.passed/t.total)*100)|round(1) }}%{% else %}-{% endif %}</td>
-                <td>{{ t.launched_by }}</td>
-                <td><a href="{{ url_for('report_detail', tid=t.id) }}">Rapport</a></td>
+                <td class="text-small">{{ t.launched_by }}</td>
+                <td><a href="{{ url_for('report_detail', tid=t.id) }}">Consulter</a></td>
             </tr>
             {% else %}
             <tr><td colspan="9" class="text-muted text-center">Aucune exécution</td></tr>

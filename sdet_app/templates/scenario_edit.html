@@ -47,6 +47,23 @@
     {% else %}
     <h2>Étape</h2>
     <form method="POST" action="{{ url_for('scenario_step_edit', pid=project.id, sid=step.id) }}">
+        <label for="action_type">Action standard</label>
+        <select id="action_type" name="action_type">
+            <option value="">Libellé libre (texte)</option>
+            {% set atypes = {'NAVIGUER':'Naviguer','CLIQUEER':'Cliquer','REMPLIR':'Remplir','SELECTIONNER':'Sélectionner','COCHER':'Cocher','DECOCHER':'Décocher','RECHERCHER':'Rechercher','VERIFIER':'Vérifier','ATTENDRE':'Attendre','ECRAN':"Capture d'écran",'SELECTIONNER_LIGNE':'Sélectionner ligne'} %}
+            {% for key, label in atypes.items() %}
+            <option value="{{ key }}" {% if step.action_type == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <label for="target">Cible <span class="text-muted text-small">(bouton, champ, URL…)</span></label>
+        <input type="text" id="target" name="target" value="{{ step.target or '' }}"
+               placeholder="Ex&nbsp;: Ajouter, Nom, /clients">
+        <label for="value">Valeur <span class="text-muted text-small">(si nécessaire)</span></label>
+        <input type="text" id="value" name="value" value="{{ step.value or '' }}"
+               placeholder="Ex&nbsp;: QA_TEST_2509">
+        <label for="expected">Résultat attendu <span class="text-muted text-small">(optionnel)</span></label>
+        <input type="text" id="expected" name="expected" value="{{ step.expected or '' }}"
+               placeholder="Ex&nbsp;: Élément créé, Page chargée">
         <label for="description">Description de l'étape</label>
         <textarea id="description" name="description" rows="3" required>{{ step.description }}</textarea>
         <div class="form-actions">

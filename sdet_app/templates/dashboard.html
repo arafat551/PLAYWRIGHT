@@ -17,110 +17,185 @@
     <div class="stat-card">
         <div class="stat-number">{{ m.total_projects }}</div>
         <div class="stat-label">Projets</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">tous statuts confondus</div>
     </div>
     <div class="stat-card">
         <div class="stat-number">{{ m.active_projects }}</div>
         <div class="stat-label">Projets actifs</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">en cours de test</div>
     </div>
     <div class="stat-card">
         <div class="stat-number">{{ m.total_tests }}</div>
-        <div class="stat-label">Tests réalisés</div>
+        <div class="stat-label">Exécutions terminées</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">nombre de lancements</div>
     </div>
     <div class="stat-card stat-success">
         <div class="stat-number">{{ m.total_passed }}</div>
-        <div class="stat-label">PASS</div>
+        <div class="stat-label">Étapes PASS</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">toutes exécutions</div>
     </div>
     <div class="stat-card stat-danger">
         <div class="stat-number">{{ m.total_failed }}</div>
-        <div class="stat-label">FAIL</div>
+        <div class="stat-label">Étapes FAIL</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">toutes exécutions</div>
     </div>
     <div class="stat-card stat-warning">
         <div class="stat-number">{{ m.success_rate }}%</div>
-        <div class="stat-label">Taux de réussite</div>
+        <div class="stat-label">Taux de réussite global</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">PASS / total étapes</div>
     </div>
 </div>
 
 <div class="charts-grid">
     <div class="card">
         <h2>Répartition des résultats</h2>
-        <div class="chart-card">
+        <div class="chart-card donut-compact">
             <canvas id="donut"></canvas>
         </div>
     </div>
     <div class="card">
         <h2>Dernières exécutions</h2>
-        <table class="data-table">
-            <thead>
-                <tr><th>Projet</th><th>Type</th><th>Statut</th><th>Réussite</th></tr>
-            </thead>
-            <tbody>
-                {% for t in m.recent %}
-                <tr>
-                    <td>{{ t.project_name }}</td>
-                    <td>{{ t.run_type }}</td>
-                    <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
-                    <td>
-                        {% if t.total and t.total > 0 %}
-                            {{ ((t.passed / t.total) * 100)|round(1) }}%
-                        {% else %}-{% endif %}
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="4" class="text-muted text-center">Aucune exécution</td></tr>
+        <div class="recent-list">
+            {% for chunk in m.recent | batch(3) %}
+            <div class="recent-page">
+                {% for t in chunk %}
+                <div class="recent-run">
+                    <div class="recent-run-info">
+                        <div class="recent-run-project">{{ t.project_name }}</div>
+                        <div class="recent-run-meta">
+                            {{ t.run_type }} · {{ t.started_at | dt_fr_short }}
+                            {% if t.launched_by %} · {{ t.launched_by }}{% endif %}
+                        </div>
+                    </div>
+                    {% if t.total and t.total > 0 %}
+                    {% set pct = ((t.passed / t.total) * 100)|round(1) %}
+                    <span class="recent-run-pct" style="color:{% if pct >= 80 %}var(--success){% elif pct >= 50 %}var(--warning){% else %}var(--danger){% endif %}">{{ pct }}%</span>
+                    {% else %}
+                    <span class="recent-run-pct text-muted">—</span>
+                    {% endif %}
+                    <span class="badge badge-{{ t.status }}" style="font-size:.68rem">{{ t.status }}</span>
+                    <a href="{{ url_for('report_detail', tid=t.id) }}" class="recent-run-link">Rapport →</a>
+                </div>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+            {% else %}
+            <p class="text-muted text-small">Aucune exécution récente</p>
+            {% endfor %}
+        </div>
+        <div class="pagination" id="recentPager"></div>
     </div>
 </div>
+
+{% if m.per_project %}
+<div class="card">
+    <h2>Taux de réussite par projet</h2>
+    <p class="text-muted text-small" style="margin-bottom:.8rem">Pour chaque projet : taux de réussite des étapes (échelle 0-100%)</p>
+    <div class="vbar-chart-wrap">
+        <div class="vbar-axis">
+            <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
+        </div>
+        <div class="vbar-chart-area">
+            <div class="vbar-grid-lines"></div>
+            {% set per_page = 6 %}
+            {% for chunk in m.per_project | batch(per_page) %}
+            <div class="vbar-page">
+                {% for p in chunk %}
+                <div class="vbar" title="{{ p.name }} — {{ p.runs }} exécution(s), {{ p.success_rate }}%">
+                    <div class="vbar-track">
+                        <div class="vbar-fill {% if p.success_rate >= 80 %}rate-high{% elif p.success_rate >= 50 %}rate-mid{% else %}rate-low{% endif %}"
+                             style="height:{{ p.success_rate }}%">
+                            <span>{{ p.success_rate }}%</span>
+                        </div>
+                    </div>
+                    <div class="vbar-name">{{ p.name }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="pagination" id="ppPager"></div>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
 (function(){
+    /* ── Donut compact ── */
     const values = [{{ m.total_passed }}, {{ m.total_failed }}, {{ m.total_warning }}, {{ m.total_skipped }}];
-    const labels = ['PASS', 'FAIL', 'WARNING', 'SKIPPED'];
+    const labels = ['PASS', 'FAIL', 'AVERTISSEMENT', 'IGNORÉ'];
     const colors = ['#16a34a', '#dc2626', '#d97706', '#94a3b8'];
     const cv = document.getElementById('donut');
-    if (!cv) return;
-    const holder = cv.parentElement;
-    const dpr = window.devicePixelRatio || 1;
-    const size = 280;
-    cv.width = size * dpr; cv.height = size * dpr;
-    cv.style.width = size + 'px'; cv.style.height = size + 'px';
-    const ctx = cv.getContext('2d');
-    ctx.scale(dpr, dpr);
-    const cx = size / 2, cy = size / 2, r = 98, sw = 26;
-    const total = values.reduce((a, b) => a + b, 0);
-    let start = -Math.PI / 2;
-    ctx.clearRect(0, 0, size, size);
-    if (total === 0) {
-        ctx.strokeStyle = '#e5e9f2'; ctx.lineWidth = sw;
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
-    }
-    values.forEach((v, i) => {
-        if (!v) return;
-        const ang = (v / total) * 2 * Math.PI;
-        ctx.beginPath(); ctx.strokeStyle = colors[i]; ctx.lineWidth = sw;
-        ctx.arc(cx, cy, r, start, start + ang); ctx.stroke();
-        start += ang;
-    });
-    ctx.fillStyle = '#0f172a'; ctx.font = '700 26px Inter, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(total, cx, cy - 8);
-    ctx.fillStyle = '#8b94a7'; ctx.font = '600 12px Inter, sans-serif';
-    ctx.fillText('tests', cx, cy + 14);
+    if (cv) {
+        const holder = cv.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const size = 150;
+        cv.width = size * dpr; cv.height = size * dpr;
+        cv.style.width = size + 'px'; cv.style.height = size + 'px';
+        const ctx = cv.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const cx = size / 2, cy = size / 2, r = 62, sw = 17;
+        const total = values.reduce((a, b) => a + b, 0);
+        let start = -Math.PI / 2;
+        ctx.clearRect(0, 0, size, size);
+        if (total === 0) {
+            ctx.strokeStyle = '#e5e9f2'; ctx.lineWidth = sw;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+        }
+        values.forEach((v, i) => {
+            if (!v) return;
+            const ang = (v / total) * 2 * Math.PI;
+            ctx.beginPath(); ctx.strokeStyle = colors[i]; ctx.lineWidth = sw;
+            ctx.arc(cx, cy, r, start, start + ang); ctx.stroke();
+            start += ang;
+        });
+        ctx.fillStyle = '#0f172a'; ctx.font = '700 18px Inter, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(total, cx, cy - 6);
+        ctx.fillStyle = '#8b94a7'; ctx.font = '600 9px Inter, sans-serif';
+        ctx.fillText('étapes', cx, cy + 12);
 
-    const lg = document.createElement('div');
-    lg.className = 'donut-legend';
-    labels.forEach((lab, i) => {
-        const item = document.createElement('span');
-        item.className = 'donut-legend-item';
-        const dot = document.createElement('span');
-        dot.className = 'dot'; dot.style.background = colors[i];
-        item.appendChild(dot);
-        item.appendChild(document.createTextNode(lab + ' · ' + values[i]));
-        lg.appendChild(item);
-    });
-    holder.appendChild(lg);
+        var lg = document.createElement('div');
+        lg.className = 'donut-legend';
+        labels.forEach(function(lab, i){
+            if (!values[i]) return;
+            var item = document.createElement('span');
+            item.className = 'donut-legend-item';
+            var dot = document.createElement('span');
+            dot.className = 'dot'; dot.style.background = colors[i];
+            item.appendChild(dot);
+            item.appendChild(document.createTextNode(lab + ' · ' + values[i]));
+            lg.appendChild(item);
+        });
+        holder.appendChild(lg);
+    }
+
+    /* ── Pagination générique ── */
+    function initPager(pageSel, pagerId, perDisplay){
+        var pages = document.querySelectorAll(pageSel);
+        var pager = document.getElementById(pagerId);
+        if (!pager) return;
+        var total = pages.length;
+        if (total <= 1) { pager.style.display = 'none'; return; }
+        var cur = 0;
+        function show(){
+            for (var i = 0; i < total; i++) pages[i].style.display = (i === cur) ? '' : 'none';
+            pager.innerHTML =
+                '<button type="button" class="pg-btn" ' + (cur === 0 ? 'disabled' : '') + ' data-act="prev" aria-label="Précédent">‹</button>' +
+                '<span class="pg-info">' + (cur + 1) + ' / ' + total + '</span>' +
+                '<button type="button" class="pg-btn" ' + (cur === total - 1 ? 'disabled' : '') + ' data-act="next" aria-label="Suivant">›</button>';
+            pager.querySelectorAll('.pg-btn').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    if (btn.hasAttribute('disabled')) return;
+                    cur += (btn.dataset.act === 'next') ? 1 : -1;
+                    show();
+                });
+            });
+        }
+        show();
+    }
+    initPager('.recent-page', 'recentPager', 12);
+    initPager('.vbar-page', 'ppPager', 6);
 })();
 </script>
 {% endblock %}

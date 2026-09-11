@@ -365,7 +365,10 @@ def open_screen(project, nav_path=None, module="", functionality="", url=""):
     session, stop = open_session()
     page = session.page
     try:
-        session.goto(project["url"])
+        try:
+            session.goto(project["url"])
+        except Exception:
+            session.goto(project["url"], wait_until="commit", timeout=60000)
         browser.settle(page)
         if project.get("auth_type", "none") != "none" and has_login_form(page):
             try_login(page, project.get("email", ""),
@@ -709,11 +712,13 @@ def _field_value(field, suffix, entity_name):
 
 def generate_steps(project, nav_path=None, module="", functionality="",
                    extra_context="", url=""):
-    """Generate CRUD steps (Create + Update + Delete) for a functionality.
+    """Generate the steps (CRUD when the screen has a form, simple
+    navigation/verification otherwise) for a functionality.
 
-    Returns (steps, error): steps is a list of instruction strings including
-    section labels 'CRÉATION', 'MODIFICATION', 'SUPPRESSION' to mark each
-    phase.  error is a friendly French message when generation is not possible.
+    Returns (steps, error): steps is a list of instruction strings.  For CRUD
+    screens the list includes the section labels 'CRÉATION', 'MODIFICATION',
+    'SUPPRESSION' to mark each phase.  error is a friendly French message when
+    generation is not possible.
     """
     page, session, stop = open_screen(project, nav_path=nav_path,
                                       module=module,
@@ -734,14 +739,29 @@ def generate_steps(project, nav_path=None, module="", functionality="",
             pass
 
 
+def _navigation_steps(functionality, table_present=False):
+    """Steps for a read-only screen: open the page and verify it loads."""
+    steps = [
+        {"action_type": "VERIFIER", "target": "la page se charge sans erreur",
+         "value": "", "expected": "Page chargée"},
+    ]
+    if table_present:
+        steps.append({"action_type": "VERIFIER",
+                      "target": "le tableau de données est affiché",
+                      "value": "", "expected": "Tableau visible"})
+    return steps
+
+
 def _generate_from_page(page, functionality, suffix=None):
-    """Inspect a live screen (an already-open page) and produce CRUD steps.
+    """Inspect a live screen (an already-open page) and produce the right
+    steps: full CRUD when a creation form + editable fields are present,
+    simple navigation + page-load verification for read-only screens.
 
     Reused by ``generate_steps`` and by the whole-app module scan so that the
     browser is only opened once.  Does NOT close the session — the caller owns
     the page lifecycle.
 
-    Returns (steps, error).
+    Returns (steps, error) where steps is a list of structured action dicts.
     """
     if suffix is None:
         suffix = _suffix()
@@ -749,86 +769,130 @@ def _generate_from_page(page, functionality, suffix=None):
     entity = f"QA_{word[0].upper()}_{suffix}" if word else f"QA_{suffix}"
     entity_mod = f"{entity}_MOD"
 
-    # --- Phase 1: CRÉATION -----------------------------------------------
-    create_steps = []
     must_click_create = has_create_button(page)
+    table_present = has_table(page)
+
+    form_el = None
     if must_click_create:
-        if not click_create_button(page):
-            return [], ("Bouton de création introuvable après détection — "
-                        "impossible de générer.")
-        form_el = find_form(page)
-    else:
+        if click_create_button(page):
+            form_el = find_form(page)
+    if not form_el:
         form_el = find_form(page)
 
+    # --- Read-only screen ---
     if not form_el:
-        return [], ("Aucun formulaire de création détecté sur cet écran "
-                    "— le générateur ne peut pas créer de scénario.")
+        return _navigation_steps(functionality, table_present), None
 
     fields = [f for f in describe_form(form_el) if f.get("label")]
-    if not fields:
-        return [], ("Aucun champ de saisie nommé détecté dans le formulaire.")
 
+    # --- Form without named fields ---
+    if not fields:
+        if not must_click_create:
+            return _navigation_steps(functionality, table_present), None
+        steps = [
+            {"action_type": "CLIQUEER", "target": "Ajouter",
+             "value": "", "expected": "Formulaire ouvert"},
+        ]
+        return steps, None
+
+    # --- Phase 1: CREATION ---
+    create_steps = []
     if must_click_create:
-        create_steps.append("Cliquer sur le bouton Ajouter")
+        create_steps.append(
+            {"action_type": "CLIQUEER", "target": "Ajouter",
+             "value": "", "expected": "Formulaire ouvert"})
     for f in fields:
-        kind, value = _field_value(f, suffix, entity)
+        kind, fval = _field_value(f, suffix, entity)
         if kind is None:
             continue
         if kind == "check":
-            create_steps.append(f"Cocher {f['label']}")
+            create_steps.append(
+                {"action_type": "COCHER", "target": f["label"],
+                 "value": "", "expected": ""})
         elif kind == "select":
-            create_steps.append(f"Sélectionner {f['label']} avec {value}")
+            create_steps.append(
+                {"action_type": "SELECTIONNER", "target": f["label"],
+                 "value": fval, "expected": ""})
         else:
-            create_steps.append(f"Remplir le champ {f['label']} avec {value}")
+            create_steps.append(
+                {"action_type": "REMPLIR", "target": f["label"],
+                 "value": fval, "expected": ""})
     if not create_steps:
-        return [], ("Aucune action de remplissage générable pour ce "
-                    "formulaire.")
+        return _navigation_steps(functionality, table_present), None
     save_text = submit_label(form_el)
-    create_steps.append(f"Cliquer sur {save_text}")
-    table_present = has_table(page)
+    create_steps.append(
+        {"action_type": "CLIQUEER", "target": save_text,
+         "value": "", "expected": "Formulaire soumis"})
     if table_present:
-        create_steps.append(f"Vérifier que la ligne Contient {entity}")
+        create_steps.append(
+            {"action_type": "VERIFIER", "target": f"{entity} visible dans la liste",
+             "value": "", "expected": "Élément créé"})
 
-    # --- Phase 2: MODIFICATION ------------------------------------------
+    # --- Phase 2: MODIFICATION ---
     edit_steps = []
     has_edit, has_delete = _detect_row_actions(page)
     if has_edit and table_present:
-        edit_steps.append(f"Cliquer sur Modifier pour {entity}")
-        # Re-analyze the form after clicking edit
-        # We generate generic fill steps using the same fields
+        edit_steps.append(
+            {"action_type": "RECHERCHER", "target": entity,
+             "value": "", "expected": "Élément trouvé"})
+        edit_steps.append(
+            {"action_type": "SELECTIONNER_LIGNE", "target": entity,
+             "value": "", "expected": "Ligne sélectionnée"})
+        edit_steps.append(
+            {"action_type": "CLIQUEER", "target": "Modifier",
+             "value": "", "expected": "Formulaire de modification ouvert"})
         for f in fields:
-            kind, value = _field_value(f, suffix, entity_mod)
+            kind, fval = _field_value(f, suffix, entity_mod)
             if kind is None:
                 continue
             if kind == "check":
-                edit_steps.append(f"Cocher {f['label']}")
+                edit_steps.append(
+                    {"action_type": "COCHER", "target": f["label"],
+                     "value": "", "expected": ""})
             elif kind == "select":
-                edit_steps.append(f"Sélectionner {f['label']} avec {value}")
+                edit_steps.append(
+                    {"action_type": "SELECTIONNER", "target": f["label"],
+                     "value": fval, "expected": ""})
             else:
-                edit_steps.append(f"Remplir le champ {f['label']} avec {value}")
+                edit_steps.append(
+                    {"action_type": "REMPLIR", "target": f["label"],
+                     "value": fval, "expected": ""})
         if edit_steps:
-            edit_steps.append(f"Cliquer sur {save_text}")
-            edit_steps.append(f"Vérifier que la ligne Contient {entity_mod}")
+            edit_steps.append(
+                {"action_type": "CLIQUEER", "target": save_text,
+                 "value": "", "expected": "Modification enregistrée"})
+            edit_steps.append(
+                {"action_type": "VERIFIER",
+                 "target": f"{entity_mod} visible",
+                 "value": "", "expected": "Modification confirmée"})
 
-    # --- Phase 3: SUPPRESSION -------------------------------------------
+    # --- Phase 3: SUPPRESSION ---
     delete_steps = []
     if has_delete and table_present:
-        delete_steps.append(f"Cliquer sur Supprimer pour {entity_mod}")
+        delete_steps.append(
+            {"action_type": "CLIQUEER", "target": "Supprimer",
+             "value": "", "expected": "Demande de confirmation"})
         if _detect_confirm_button(page):
-            delete_steps.append("Cliquer sur Confirmer")
-        delete_steps.append(f"Vérifier que la ligne ne Contient plus {entity_mod}")
+            delete_steps.append(
+                {"action_type": "CLIQUEER", "target": "Confirmer",
+                 "value": "", "expected": "Suppression effectuée"})
+        delete_steps.append(
+            {"action_type": "VERIFIER",
+             "target": f"{entity_mod} absent de la liste",
+             "value": "", "expected": "Élément supprimé"})
 
-    # --- Assemble all phases with labels ----------------------------------
+    # --- Assemble all phases ---
     steps = []
-    steps.append("CRÉATION")
+    steps.append({"action_type": "SECTION", "target": "CRÉATION",
+                  "value": "", "expected": ""})
     steps.extend(create_steps)
     if edit_steps:
-        steps.append("")  # blank line separator
-        steps.append("MODIFICATION")
+        steps.append({"action_type": "SECTION", "target": "MODIFICATION",
+                      "value": "", "expected": ""})
         steps.extend(edit_steps)
     if delete_steps:
-        steps.append("")
-        steps.append("SUPPRESSION")
+        steps.append({"action_type": "SECTION", "target": "SUPPRESSION",
+                      "value": "", "expected": ""})
         steps.extend(delete_steps)
 
     return steps, None
@@ -1024,20 +1088,6 @@ def find_module_url(page, module_name, base_url=""):
     return {"name": module_name, "url": _strip_fragment(best_href) if best_score >= 40 else ""}
 
 
-def collect_menu_labels(page):
-    """Return the cleaned, de-duplicated visible menu labels on the screen."""
-    labels = []
-    seen = set()
-    for it in _scan_menu_items(page):
-        lbl = _clean_menu_label(it["label"])
-        key = _norm(lbl)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        labels.append(lbl)
-    return labels
-
-
 def discover_modules(page, base_url=""):
     """Detect the application's modules from the navigation.
 
@@ -1144,80 +1194,74 @@ def discover_functionalities(page, module_url, module_label=""):
     return out
 
 
-def _fallback_steps(functionality, suffix=None):
-    """A safe, generic CRUD scenario used when live inspection fails for a
-    discovered functionality, so it always ends up with a runnable scenario."""
-    if suffix is None:
-        suffix = _suffix()
-    word = _norm(functionality or "Item").split()
-    entity = f"QA_{word[0].upper()}_{suffix}" if word else f"QA_{suffix}"
-    entity_mod = f"{entity}_MOD"
+def _fallback_steps(functionality):
+    """Fallback steps used when live inspection fails for a discovered
+    functionality: a simple navigation + page-load verification scenario, so
+    a page that has no action (or that we could not inspect) is never forced
+    into a CRUD workout."""
     return [
-        "CRÉATION",
-        "Cliquer sur le bouton Ajouter",
-        f"Remplir le champ Nom avec {entity}",
-        "Cliquer sur Sauver",
-        f"Vérifier que la ligne Contient {entity}",
-        "",
-        "MODIFICATION",
-        f"Cliquer sur Modifier pour {entity}",
-        f"Remplir le champ Nom avec {entity_mod}",
-        "Cliquer sur Sauver",
-        f"Vérifier que la ligne Contient {entity_mod}",
-        "",
-        "SUPPRESSION",
-        f"Cliquer sur Supprimer pour {entity_mod}",
-        "Cliquer sur Confirmer",
-        f"Vérifier que la ligne ne Contient plus {entity_mod}",
+        {"action_type": "VERIFIER",
+         "target": f"la page {functionality} se charge sans erreur",
+         "value": "", "expected": "Page chargée"},
     ]
 
 
 def _goto_url(page, url):
     """Navigate to an absolute URL and settle. Returns True on success."""
     try:
-        page.goto(url, timeout=30000)
+        page.goto(url, timeout=45000)
         browser.settle(page)
         page.wait_for_timeout(500)
         return True
     except Exception:
-        return False
+        try:
+            page.goto(url, wait_until="commit", timeout=60000)
+            browser.settle(page)
+            page.wait_for_timeout(500)
+            return True
+        except Exception:
+            return False
 
 
 def _generate_for_functionality(page, module_name, fname, furl, suffix):
-    """Generate CRUD steps for one functionality, preferring direct URL
-    navigation (reliable) over menu-based auto-discovery."""
+    """Generate steps for one functionality, preferring direct URL
+    navigation (reliable) over menu-based auto-discovery.  When navigation
+    itself fails, the functionality is still registered with a simple
+    navigation scenario so a read-only page is never forced into a CRUD
+    workout."""
     if furl:
         if not _goto_url(page, furl):
             _log("scan: navigation impossible vers '%s' (%s)" % (fname, furl))
-            return _fallback_steps(fname, suffix)
+            return _fallback_steps(fname)
         steps, err = _generate_from_page(page, fname, suffix=suffix)
         if err:
             _log("scan: '%s' -> %s" % (fname, err))
-            steps = _fallback_steps(fname, suffix)
+            steps = _fallback_steps(fname)
         return steps
     # No direct URL: try auto-discovery by walking the module menu
     if _auto_discover_and_navigate(page, module_name, fname):
         steps, err = _generate_from_page(page, fname, suffix=suffix)
         if err:
-            steps = _fallback_steps(fname, suffix)
+            steps = _fallback_steps(fname)
         return steps
     _log("scan: navigation impossible vers '%s'" % fname)
-    return _fallback_steps(fname, suffix)
+    return _fallback_steps(fname)
 
 
 def _safe_generate_from_page(page, functionality, suffix):
     """Generate steps for one screen, never raising on a transient browser
     /DOM error (stale element, page re-render mid-scan, ...). A single screen
-    failing must not abort scanning the whole module: fall back to generic
-    steps so the functionality still gets a runnable scenario."""
+    failing must not abort scanning the whole module: fall back to simple
+    navigation steps so the functionality still gets a runnable scenario
+    without forcing CRUD on a page that may have no data entry."""
     try:
         steps, err = _generate_from_page(page, functionality, suffix=suffix)
         if err:
-            return _fallback_steps(functionality, suffix), None
+            return _fallback_steps(functionality), None
         return steps, None
     except Exception as e:
         _log("scan: génération de '%s' ignorée (%s)" % (functionality, e))
-        return _fallback_steps(functionality, suffix), None
+        return _fallback_steps(functionality), None
 
 
 def _safe_generate_functionality(page, module_name, fname, furl, suffix):
@@ -1227,7 +1271,7 @@ def _safe_generate_functionality(page, module_name, fname, furl, suffix):
                                            suffix)
     except Exception as e:
         _log("scan: fonctionnalité '%s' générée en secours (%s)" % (fname, e))
-        return _fallback_steps(fname, suffix)
+        return _fallback_steps(fname)
 
 
 def _build_module_url(base_url, module_name):
@@ -1397,7 +1441,10 @@ def scan_whole_app(project, on_module_progress=None):
     session, stop = open_session()
     page = session.page
     try:
-        session.goto(project["url"])
+        try:
+            session.goto(project["url"])
+        except Exception:
+            session.goto(project["url"], wait_until="commit", timeout=60000)
         browser.settle(page)
         if project.get("auth_type", "none") != "none" and has_login_form(page):
             try_login(page, project.get("email", ""),

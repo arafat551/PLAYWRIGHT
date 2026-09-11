@@ -2,16 +2,22 @@
 
 
 class User:
-    def __init__(self, id, email, created_at=""):
+    def __init__(self, id, email, created_at="", full_name="", role="qa", is_active=1):
         self.id = id
         self.email = email
         self.created_at = created_at
+        self.full_name = full_name
+        self.role = role
+        self.is_active = is_active
 
     @classmethod
     def from_row(cls, row):
         if not row:
             return None
-        return cls(row["id"], row["email"], row["created_at"])
+        d = dict(row)
+        return cls(d["id"], d["email"], d.get("created_at", ""),
+                   d.get("full_name", ""), d.get("role", "qa"),
+                   d.get("is_active", 1))
 
 
 class Project:

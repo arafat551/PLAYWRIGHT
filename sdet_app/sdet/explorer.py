@@ -212,11 +212,15 @@ def _lower(href):
 
 def settle(page):
     try:
-        page.wait_for_load_state("networkidle", timeout=6000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
     except Exception:
         pass
     try:
-        page.wait_for_timeout(600)
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    try:
+        page.wait_for_timeout(800)
     except Exception:
         pass
 
@@ -988,11 +992,17 @@ def explore(session, project, on_progress=None, is_cancelled=None):
         visited.add(key)
 
         try:
-            resp = session.goto(current, timeout=20000)
+            resp = session.goto(current)
             settle(page)
             status = resp.status if resp else 0
         except Exception:
-            continue
+            try:
+                resp = session.goto(current, wait="commit",
+                                    timeout=setting_int("page_timeout", env.PAGE_TIMEOUT) * 2)
+                settle(page)
+                status = resp.status if resp else 0
+            except Exception:
+                continue
 
         name = _page_title(page, current)
         found[key] = {"name": name, "status": status}

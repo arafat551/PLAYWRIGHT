@@ -19,10 +19,9 @@
 </div>
 
 <div class="info-banner">
-    <strong>Scénarios descriptifs</strong> — cochez les fonctionnalités à tester puis lancez le parcours.
-    Les <span class="step-section-title" style="display:inline;padding:0.1rem 0.3rem;font-size:0.75rem;"> étiquettes colorées</span> indiquent le dernier résultat (PASS/FAIL).
-    Utilisez la flèche ⬇ d'une fonctionnalité pour générer ses étapes CRUD, le bouton ⬇ d'un module pour
-    scanner tout le module, ou « Scanner tout le logiciel » pour détecter modules + fonctionnalités + scénarios en un seul passage.
+    <strong>Scénarios structurés</strong> — cochez les fonctionnalités à tester puis lancez le parcours.
+    Chaque étape est une action standard (Naviguer, Cliquer, Remplir…) exécutée de façon déterministe.
+    Cliquez ⬇ d'une fonctionnalité pour générer ses étapes automatiquement.
 </div>
 
 <div class="create-cards-row">
@@ -54,7 +53,8 @@
     <p class="text-muted">
         Après avoir créé un module, cliquez sur sa flèche ⬇ pour parcourir le logiciel,
         relever toutes ses fonctionnalités (et sous-fonctionnalités) et écrire automatiquement
-        leurs scénarios CRUD — le tout en un seul passage, sans re-scan.
+        leurs scénarios (CRUD si l'écran a un formulaire, vérification d'ouverture sinon)
+        — le tout en un seul passage, sans re-scan.
     </p>
     <p class="text-muted">
         Ou utilisez directement « Scanner tout le logiciel » en haut à droite pour que le système
@@ -149,14 +149,17 @@
                             {% else %}
                                 {% set ns.step_num = ns.step_num + 1 %}
                                 {% if not ns.in_list %}<ol class="step-list step-list-inline">{% set ns.in_list = true %}{% endif %}
-                                <li>
-                                    <span class="step-num">{{ ns.step_num }}</span>
-                                    <span class="step-text">{{ s.description }}</span>
-                                    <a href="{{ url_for('scenario_step_edit', pid=project.id, sid=s.id) }}"
-                                       class="icon-btn icon-edit icon-xs" title="Modifier l'étape">✎</a>
-                                    <button type="button" class="icon-btn icon-delete icon-xs" title="Supprimer l'étape"
-                                            onclick="confirmAction('{{ url_for('scenario_step_delete', pid=project.id, sid=s.id) }}', 'Supprimer cette étape ?')">×</button>
-                                </li>
+                                <li class="step-row">
+                            <span class="step-num">{{ ns.step_num }}</span>
+                            {% if s.action_type %}
+                            <span class="step-action-badge" title="Action structurée">{{ s.action_type }}</span>
+                            {% endif %}
+                            <span class="step-text">{{ s.description }}</span>
+                            <a href="{{ url_for('scenario_step_edit', pid=project.id, sid=s.id) }}"
+                               class="icon-btn icon-edit icon-xs" title="Modifier l'étape">✎</a>
+                            <button type="button" class="icon-btn icon-delete icon-xs" title="Supprimer l'étape"
+                                    onclick="confirmAction('{{ url_for('scenario_step_delete', pid=project.id, sid=s.id) }}', 'Supprimer cette étape ?')">×</button>
+                        </li>
                             {% endif %}
                         {% endfor %}
                         {% if ns.in_list %}</ol>{% endif %}
@@ -164,7 +167,7 @@
                     </div>
                 </div>
                 <div class="fn-text-btns">
-                    <button type="button" class="icon-btn icon-generate" title="Générer les étapes CRUD automatiquement"
+                    <button type="button" class="icon-btn icon-generate" title="Générer les étapes automatiquement (CRUD pour les écrans avec formulaire, vérification d'ouverture sinon)"
                             onclick="generateSteps(this, '{{ url_for('scenario_functionality_generate', pid=project.id, fid=f.id) }}', '{{ f.name }}')">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
@@ -174,10 +177,28 @@
                         </summary>
                         <div class="fn-steps-panel">
                             <div class="step-form">
-                                <input type="text" name="description" placeholder="Ajouter une étape"
+                                <select name="action_type" id="step-type-{{ f.id }}" class="step-type-select">
+                                    <option value="">Libellé libre (texte)</option>
+                                    <option value="NAVIGUER">Naviguer</option>
+                                    <option value="CLIQUEER">Cliquer</option>
+                                    <option value="REMPLIR">Remplir</option>
+                                    <option value="SELECTIONNER">Sélectionner</option>
+                                    <option value="COCHER">Cocher</option>
+                                    <option value="DECOCHER">Décocher</option>
+                                    <option value="RECHERCHER">Rechercher</option>
+                                    <option value="VERIFIER">Vérifier</option>
+                                    <option value="ATTENDRE">Attendre</option>
+                                    <option value="ECRAN">Capture d'écran</option>
+                                    <option value="SELECTIONNER_LIGNE">Sélectionner ligne</option>
+                                </select>
+                                <input type="text" name="target" placeholder="Cible (bouton, champ, URL…)"
+                                       id="step-target-{{ f.id }}">
+                                <input type="text" name="value" placeholder="Valeur (si nécessaire)"
+                                       id="step-value-{{ f.id }}">
+                                <input type="text" name="description" placeholder="Libellé (généré automatiquement)"
                                        id="step-input-{{ f.id }}">
                                 <button type="button" class="btn-secondary"
-                                        onclick="addStep(event, '{{ url_for('scenario_step_create', pid=project.id, fid=f.id) }}', 'step-input-{{ f.id }}')">Ajouter l'étape</button>
+                                        onclick="addStep(event, '{{ url_for('scenario_step_create', pid=project.id, fid=f.id) }}', 'step-input-{{ f.id }}', 'step-type-{{ f.id }}', 'step-target-{{ f.id }}', 'step-value-{{ f.id }}')">Ajouter l'étape</button>
                             </div>
                         </div>
                     </details>
@@ -262,7 +283,7 @@ function generateSteps(btn, url, name){
         btn.disabled = false;
         btn.classList.remove('generating');
         btn.innerHTML = original;
-        btn.title = 'Générer les étapes CRUD automatiquement';
+        btn.title = 'Générer les étapes automatiquement (CRUD pour les écrans avec formulaire, vérification d\'ouverture sinon)';
         alert(msg || 'Erreur lors de la génération des étapes.');
         location.reload();
     };
@@ -305,14 +326,47 @@ function pollGeneration(statusUrl, finishFail){
     setTimeout(tick, GENERATE_POLL_MS);
 }
 
-function addStep(ev, url, inputId){
-    const input = document.getElementById(inputId);
-    const desc = input.value.trim();
-    if(!desc){ alert('La description de l\'étape est obligatoire'); return; }
+function addStep(ev, url, inputId, typeId, targetId, valueId){
+    const typeEl = typeId ? document.getElementById(typeId) : null;
+    const targetEl = targetId ? document.getElementById(targetId) : null;
+    const valueEl = valueId ? document.getElementById(valueId) : null;
+    const type = typeEl ? typeEl.value : '';
+    const target = targetEl ? targetEl.value.trim() : '';
+    const value = valueEl ? valueEl.value.trim() : '';
+    let desc = document.getElementById(inputId).value.trim();
+
+    if(!desc){
+        desc = describeAction(type, target, value);
+    }
+    if(!desc && !type){
+        alert('Décrivez l\'étape ou choisissez une action standard');
+        return;
+    }
     const body = new URLSearchParams();
-    body.append('description', desc);
+    if(desc) body.append('description', desc);
+    if(type) body.append('action_type', type);
+    if(target) body.append('target', target);
+    if(value) body.append('value', value);
     fetch(url, { method: 'POST', body: body, headers: {'Content-Type': 'application/x-www-form-urlencoded'} })
         .then(() => location.reload());
+}
+
+function describeAction(type, target, value){
+    if(!type) return target || value || '';
+    switch(type){
+        case 'NAVIGUER': return 'Naviguer vers ' + target;
+        case 'CLIQUEER': return 'Cliquer sur ' + target;
+        case 'REMPLIR': return 'Remplir le champ ' + target + (value ? ' avec ' + value : '');
+        case 'SELECTIONNER': return 'Sélectionner ' + target + (value ? ' avec ' + value : '');
+        case 'COCHER': return 'Cocher ' + target;
+        case 'DECOCHER': return 'Décocher ' + target;
+        case 'RECHERCHER': return 'Rechercher ' + target;
+        case 'VERIFIER': return 'Vérifier que ' + target;
+        case 'ATTENDRE': return 'Attendre ' + (value || '2000') + ' ms';
+        case 'ECRAN': return 'Capturer ' + (target || 'écran');
+        case 'SELECTIONNER_LIGNE': return 'Sélectionner la ligne ' + target;
+        default: return target || value || '';
+    }
 }
 
 function addFunctionality(ev, url, inputId, urlInputId){
@@ -364,7 +418,7 @@ function pollScan(statusUrl, onDone, onFail, timeoutMs){
 }
 
 function startModuleScan(btn, url, name){
-    if(!confirm(`Scanner le module « ${name} » ? Le système va parcourir le module pour détecter ses fonctionnalités et écrire leurs scénarios CRUD. Les fonctionnalités actuelles seront remplacées.`)) return;
+    if(!confirm(`Scanner le module « ${name} » ? Le système va parcourir le module pour détecter ses fonctionnalités et écrire leurs scénarios (CRUD si l'écran a un formulaire, vérification d'ouverture sinon). Les fonctionnalités actuelles seront remplacées.`)) return;
 
     const original = btn.innerHTML;
     btn.disabled = true;
@@ -394,7 +448,7 @@ function startModuleScan(btn, url, name){
 function startScanAll(){
     const btn = document.getElementById('scanAllBtn');
     if(!btn) return;
-    if(!confirm('Scanner tout le logiciel ? Le système va détecter automatiquement les modules (CRM, IMS…), leurs fonctionnalités (et sous-fonctionnalités) et écrire les scénarios CRUD — le tout en un seul passage. Tous les modules existants seront remplacés.')) return;
+    if(!confirm("Scanner tout le logiciel ? Le système va détecter automatiquement les modules (CRM, IMS…), leurs fonctionnalités (et sous-fonctionnalités) et écrire les scénarios (CRUD si l'écran a un formulaire, vérification d'ouverture sinon) — le tout en un seul passage. Tous les modules existants seront remplacés.")) return;
 
     const original = btn.innerHTML;
     btn.disabled = true;
@@ -437,6 +491,39 @@ document.getElementById('scenarioForm').addEventListener('submit', function(e){
         setTimeout(()=>{ bar.style.borderColor = ''; }, 1200);
     }
 });
+
+// --- "+" popovers (ajout fonctionnalité / étape) -------------------------
+// Un seul panneau ouvert à la fois, fermeture au clic extérieur ou Échap,
+// et défilement pour que le panneau reste visible même en bas de page.
+function closeAllFnPanels(except){
+    document.querySelectorAll('details.fn-details[open]').forEach(d => {
+        if(d !== except) d.removeAttribute('open');
+    });
+}
+document.querySelectorAll('details.fn-details > summary').forEach(s => {
+    s.addEventListener('click', () => {
+        const det = s.parentElement;
+        if(!det.hasAttribute('open')){
+            // Ferme les autres avant l'ouverture effective du toggle.
+            closeAllFnPanels(null);
+            setTimeout(() => {
+                const panel = det.querySelector('.fn-steps-panel');
+                if(panel && det.hasAttribute('open')){
+                    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    const firstInput = panel.querySelector('input[type="text"], select');
+                    if(firstInput) firstInput.focus({ preventScroll: true });
+                }
+            }, 0);
+        }
+    });
+});
+document.addEventListener('click', (e) => {
+    if(!e.target.closest('details.fn-details')) closeAllFnPanels(null);
+});
+document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') closeAllFnPanels(null);
+});
+
 updateCount();
 </script>
 {% endblock %}

@@ -108,5 +108,10 @@
 <script>
 setInterval(()=>{ location.reload(); }, 3000);
 </script>
+{% elif test.status in ('completed','failed','cancelled') %}
+<script>
+// Le test est terminé : générer automatiquement le rapport.
+window.location.replace("{{ url_for('report_detail', tid=test.id) }}");
+</script>
 {% endif %}
 {% endblock %}

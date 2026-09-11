@@ -3,24 +3,31 @@
 Only responsibilities: routes, sessions, pages rendering, and starting
 explorations/tests in background threads. All SDET logic lives in sdet/.
 """
+import io
 import json
+import os
 import re
+import secrets
 import threading
 import time
+from datetime import datetime
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, flash, jsonify)
-
-from flask import (Flask, render_template, request, redirect, url_for,
-                   session, flash, jsonify)
+                   session, flash, jsonify, send_file, abort)
 
 from .config import env, get_setting, apply_settings
-from . import database, security
+from . import database, security, mailer
 from .sdet import planner, engine, generator
+from .sdet.action_library import list_action_types, _human_description
+from .sdet.planner import build_scenarios
 
 app = Flask(__name__, static_folder=env.STATIC_DIR, template_folder=env.TEMPLATE_DIR)
 app.secret_key = env.SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+# Apply schema migrations (roles, ownership, ...) on every startup, whatever
+# the entry point (run.py, flask run, ...). Idempotent, safe to re-run.
+database.init_db()
 
 # ---------------------------------------------------------------------------
 # Background step-generation tracking (in-memory, single local user)
@@ -36,6 +43,15 @@ def _prune_generations(now):
         g = _generations[fid]
         if g["status"] != "running" and now - g.get("finished", 0) > 120:
             del _generations[fid]
+
+
+def _step_desc(step):
+    """Return a human-readable description for a structured step dict."""
+    if not isinstance(step, dict):
+        return str(step)
+    atype = (step.get("action_type") or "").upper()
+    return _human_description(atype, step.get("target", ""),
+                              step.get("value", ""))
 
 
 # Whole-app / module scans (single background pass upstream of generation)
@@ -61,6 +77,118 @@ def _get_scan(key):
         return dict(_scans.get(key) or {})
 
 
+# ---------------------------------------------------------------------------
+# Jinja filters + helpers
+# ---------------------------------------------------------------------------
+
+_MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
+         "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+@app.template_filter("dt_fr")
+def dt_fr(s):
+    """Format a date string in French: '11 septembre 2026 à 14h30'."""
+    if not s:
+        return "—"
+    s = str(s)[:19].replace("T", " ")
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return str(s)
+    return f"{dt.day} {_MOIS[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
+
+
+@app.template_filter("dt_fr_short")
+def dt_fr_short(s):
+    """Shorter French date: '11 sept. 2026 14h30'."""
+    if not s:
+        return "—"
+    s = str(s)[:19].replace("T", " ")
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return str(s)
+    short_mois = ["janv.", "févr.", "mars", "avr.", "mai", "juin",
+                  "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+    return f"{dt.day} {short_mois[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
+
+
+@app.context_processor
+def inject_globals():
+    """Make user_role available to all templates."""
+    return {"user_role": session.get("user_role", "")}
+
+
+def admin_required(f):
+    from functools import wraps
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("user_role") != "admin":
+            flash("Accès réservé aux administrateurs", "error")
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Ownership / multi-user scoping
+# ---------------------------------------------------------------------------
+
+def _scope():
+    """Owner filter for database queries. Admins see everything; other users
+    only their own projects and executions."""
+    if session.get("user_role") == "admin":
+        return None
+    return session.get("user_id")
+
+
+def _own_uid():
+    return session.get("user_id")
+
+
+@app.before_request
+def _guard_ownership():
+    """Prevent a non-admin user from reaching projects / tests they do not
+    own. Admins may read everything. Deletion is always restricted to the
+    owner (see the delete routes)."""
+    # Keep the session role in sync with the database (migrations, promotion,
+    # demotion) so admin-only UI appears as soon as it is granted.
+    if "user_id" in session:
+        _u = database.get_user_by_id(session["user_id"])
+        if _u:
+            session["user_role"] = getattr(_u, "role", "qa")
+    if request.endpoint == "login":
+        return None
+    if _scope() is None:
+        return None
+    vals = request.view_args or {}
+    uid = _own_uid()
+    if "pid" in vals:
+        project = database.get_project(vals["pid"])
+        if not project or project.row.get("owner_id") != uid:
+            flash("Projet introuvable", "error")
+            return redirect(url_for("projects"))
+    if "tid" in vals:
+        test = database.get_test_run(vals["tid"])
+        if not test or getattr(test, "owner_id", None) != uid:
+            flash("Test introuvable", "error")
+            return redirect(url_for("projects"))
+    return None
+
+
+def _can_delete(owner_id):
+    """Deletion is always limited to the owner, even for admins."""
+    return owner_id is not None and owner_id == _own_uid()
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+
 def login_required(f):
     from functools import wraps
 
@@ -81,6 +209,12 @@ def index():
     return redirect(url_for("dashboard") if "user_id" in session else url_for("login"))
 
 
+@app.route("/api/action-types")
+def api_action_types():
+    """Return the catalog of standardized actions as JSON."""
+    return jsonify(list_action_types())
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -90,6 +224,8 @@ def login():
         if user:
             session["user_id"] = user.id
             session["user_email"] = user.email
+            session["user_role"] = getattr(user, "role", "qa")
+            session["user_name"] = getattr(user, "full_name", "")
             return redirect(url_for("dashboard"))
         flash("Identifiants incorrects", "error")
     return render_template("login.html")
@@ -108,7 +244,7 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    metrics = database.dashboard_metrics()
+    metrics = database.dashboard_metrics(_scope())
     return render_template("dashboard.html", m=metrics)
 
 
@@ -119,7 +255,7 @@ def dashboard():
 @app.route("/projects")
 @login_required
 def projects():
-    proj_list = database.list_projects()
+    proj_list = database.list_projects(_scope())
     return render_template("projects.html", projects=proj_list)
 
 
@@ -134,7 +270,8 @@ def project_new():
                 flash(e, "error")
             return render_template("project_form.html", project=None, editing=False)
         database.create_project(data, session.get("user_email", ""),
-                                encrypt=security.encrypt_value)
+                                encrypt=security.encrypt_value,
+                                owner_id=session.get("user_id"))
         flash("Projet créé avec succès", "success")
         return redirect(url_for("projects"))
     return render_template("project_form.html", project=None, editing=False)
@@ -191,6 +328,10 @@ def project_toggle(pid):
 @app.route("/projects/<int:pid>/delete", methods=["POST"])
 @login_required
 def project_delete(pid):
+    project = database.get_project(pid)
+    if not project or not _can_delete(project.row.get("owner_id")):
+        flash("Vous ne pouvez supprimer que vos propres projets", "error")
+        return redirect(url_for("projects"))
     database.delete_project(pid)
     flash("Projet supprimé", "success")
     return redirect(url_for("projects"))
@@ -447,7 +588,12 @@ def scenario_step_create(pid, fid):
     if not description:
         flash("Le libellé de l'étape est obligatoire", "error")
         return redirect(url_for("project_scenarios", pid=pid))
-    database.add_step(fid, description)
+    atype = request.form.get("action_type", "") or ""
+    target = request.form.get("target", "") or ""
+    value = request.form.get("value", "") or ""
+    expected = request.form.get("expected", "") or ""
+    database.add_step(fid, description, action_type=atype, target=target,
+                      value=value, expected=expected)
     flash("Étape ajoutée", "success")
     return redirect(url_for("project_scenarios", pid=pid))
 
@@ -496,7 +642,15 @@ def scenario_functionality_generate(pid, fid):
                 _generations[fid]["error"] = err
             else:
                 for s in steps:
-                    database.add_step(fid, s)
+                    if isinstance(s, dict):
+                        database.add_step(
+                            fid, s.get("description") or _step_desc(s),
+                            action_type=s.get("action_type", ""),
+                            target=s.get("target", ""),
+                            value=s.get("value", ""),
+                            expected=s.get("expected", ""))
+                    else:
+                        database.add_step(fid, s)
                 _generations[fid]["status"] = "done"
                 _generations[fid]["steps"] = steps
             _generations[fid]["finished"] = time.time()
@@ -578,7 +732,15 @@ def scenario_module_generate(pid, mid):
                     mid, r["functionality"], description="", path=r.get("path", ""),
                     url=r.get("url", ""))
                 for s in r["steps"]:
-                    database.add_step(fid, s)
+                    if isinstance(s, dict):
+                        database.add_step(
+                            fid, s.get("description") or _step_desc(s),
+                            action_type=s.get("action_type", ""),
+                            target=s.get("target", ""),
+                            value=s.get("value", ""),
+                            expected=s.get("expected", ""))
+                    else:
+                        database.add_step(fid, s)
             fn_count = len(results)
             _set_scan(key, status="done", message=None,
                       count=fn_count, finished=time.time())
@@ -652,7 +814,15 @@ def scenario_scan_all(pid):
                         mid, fn["functionality"], description="",
                         path=fn.get("path", ""), url=fn.get("url", ""))
                     for s in fn["steps"]:
-                        database.add_step(fid, s)
+                        if isinstance(s, dict):
+                            database.add_step(
+                                fid, s.get("description") or _step_desc(s),
+                                action_type=s.get("action_type", ""),
+                                target=s.get("target", ""),
+                                value=s.get("value", ""),
+                                expected=s.get("expected", ""))
+                        else:
+                            database.add_step(fid, s)
             total = sum(len(m["functionalities"]) for m in modules)
             _set_scan(key, status="done", message=None,
                       count=total, finished=time.time())
@@ -734,7 +904,12 @@ def scenario_step_edit(pid, sid):
         if not description:
             flash("La description est obligatoire", "error")
             return redirect(url_for("scenario_step_edit", pid=pid, sid=sid))
-        database.update_step(sid, description)
+        atype = request.form.get("action_type", "") or None
+        target = request.form.get("target", "") or ""
+        value = request.form.get("value", "") or ""
+        expected = request.form.get("expected", "") or ""
+        database.update_step(sid, description, action_type=atype,
+                             target=target, value=value, expected=expected)
         flash("Étape mise à jour", "success")
         return redirect(url_for("project_scenarios", pid=pid))
     func = database.get_functionality(step["functionality_id"])
@@ -827,8 +1002,21 @@ SETTINGS_FIELDS = [
      "Nombre maximum de formulaires détectés par page."),
     ("page_timeout", "Délai de chargement (ms)", "int",
      "Temps maximal d'attente du chargement d'une page."),
-    ("headless", "Navigateur sans interface", "bool",
-     "Lance le navigateur en arrière-plan (recommandé sur un serveur)."),
+    ("headless", "Navigateur sans interface (headless)", "bool",
+     "Activez : le navigateur s'exécute en arrière-plan, sans fenêtre visible. "
+     "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement."),
+    ("smtp_host", "Serveur SMTP", "text",
+     "Hôte d'envoi des e-mails (ex. smtp.gmail.com). Laissez vide pour désactiver les envois."),
+    ("smtp_port", "Port SMTP", "int",
+     "Port (587 TLS par défaut, 465 pour SSL)."),
+    ("smtp_user", "Utilisateur SMTP", "text",
+     "Compte servant à l'authentification."),
+    ("smtp_password", "Mot de passe SMTP", "password",
+     "Mot de passe applicatif du compte SMTP."),
+    ("smtp_from", "Expéditeur", "text",
+     "Adresse affichée comme expéditeur (vide = utilisateur SMTP)."),
+    ("smtp_secure", "Sécurité SMTP", "text",
+     "tls ou ssl."),
 ]
 
 SETTINGS_DEFAULTS = {
@@ -837,6 +1025,12 @@ SETTINGS_DEFAULTS = {
     "max_forms": 30,
     "page_timeout": env.PAGE_TIMEOUT,
     "headless": env.HEADLESS,
+    "smtp_host": "",
+    "smtp_port": "587",
+    "smtp_user": "",
+    "smtp_password": "",
+    "smtp_from": "",
+    "smtp_secure": "tls",
 }
 
 
@@ -860,6 +1054,31 @@ def settings():
     return render_template("settings.html", fields=SETTINGS_FIELDS, vals=vals)
 
 
+@app.route("/settings/send-test-email", methods=["POST"])
+@login_required
+def settings_send_test_email():
+    """Envoie un e-mail de test pour valider la configuration SMTP (utilisée
+    notamment pour les mots de passe temporaires à la création d'un utilisateur)."""
+    recipient = (request.form.get("recipient") or "").strip()
+    if not recipient:
+        flash("Indiquez l'adresse e-mail qui recevra le message de test", "error")
+        return redirect(url_for("settings"))
+    host = get_setting("smtp_host") or ""
+    sent = mailer.send_email(
+        recipient,
+        "Test SMTP AUTOMATION",
+        "<p>Félicitations, votre configuration SMTP fonctionne correctement !</p>")
+    if sent:
+        flash(f"E-mail de test envoyé à {recipient}", "success")
+    elif host:
+        flash("Échec de l'envoi SMTP : vérifiez l'hôte, le port et les identifiants. "
+              "Le message a été placé dans la boîte de sortie.", "error")
+    else:
+        flash("SMTP non configuré : le message de test a été mis dans la boîte de sortie (outbox).",
+              "info")
+    return redirect(url_for("settings"))
+
+
 # ---------------------------------------------------------------------------
 # Test view / OTP / cancel / results
 # ---------------------------------------------------------------------------
@@ -873,13 +1092,16 @@ def test_view(tid):
         return redirect(url_for("projects"))
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
+    progress = None
+    if test.status in ("running", "waiting_otp", "otp_submitted"):
+        progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
     elif run_type == "Scénario":
         template = "scenario_run.html"
     else:
         template = "test_run.html"
-    return render_template(template, test=test, results=results)
+    return render_template(template, test=test, results=results, progress=progress)
 
 
 @app.route("/tests/<int:tid>/otp", methods=["POST"])
@@ -909,7 +1131,7 @@ def test_cancel(tid):
 @app.route("/reports")
 @login_required
 def reports():
-    tests = [t for t in database.list_test_runs()
+    tests = [t for t in database.list_test_runs(owner_id=_scope())
              if t.status in ("completed", "failed")]
     return render_template("reports.html", tests=tests)
 
@@ -924,13 +1146,315 @@ def report_detail(tid):
     results = database.list_results(tid)
     from .sdet import reporter as rep
     counters = rep.counters_from_results([r.__dict__ for r in results])
+    duration = 0
+    try:
+        start = datetime.strptime(str(test.started_at)[:19], "%Y-%m-%d %H:%M:%S")
+        if getattr(test, "finished_at", None):
+            end = datetime.strptime(str(test.finished_at)[:19], "%Y-%m-%d %H:%M:%S")
+            duration = max(int((end - start).total_seconds()), 0)
+    except ValueError:
+        duration = 0
     report = rep.build_report({"name": getattr(test, "project_name", ""),
                                "environment": getattr(test, "project_env", "")},
                               {"started_at": test.started_at, "launched_by": test.launched_by,
                                "run_type": test.run_type, "id": test.id},
-                              [r.__dict__ for r in results], counters, 0)
+                              [r.__dict__ for r in results], counters, duration)
     return render_template("report.html", test=test, results=results,
                            report=report)
+
+
+@app.route("/reports/<int:tid>/download")
+@login_required
+def report_download(tid):
+    """Download the report as a PDF document (HTML + captures converted)."""
+    from .sdet import reporter as rep
+
+    test = database.get_test_run(tid)
+    if not test:
+        abort(404)
+    results = database.list_results(tid)
+    results_dicts = [r.__dict__ for r in results]
+    counters = rep.counters_from_results(results_dicts)
+    report = rep.build_report(
+        {"name": getattr(test, "project_name", ""),
+         "environment": getattr(test, "project_env", "")},
+        {"started_at": test.started_at, "launched_by": test.launched_by,
+         "run_type": test.run_type, "id": test.id},
+        results_dicts, counters, 0)
+    report["_raw_results"] = results_dicts
+
+    # Build the HTML report in memory, then convert it to PDF
+    html = rep.render_html(report)
+    pdf_bytes = _render_report_pdf(html, tid)
+
+    fname = f"rapport_{getattr(test, 'project_name', 'projet')}_{tid}.pdf"
+    buf = io.BytesIO(pdf_bytes)
+    return send_file(buf, mimetype="application/pdf",
+                     as_attachment=True, download_name=fname)
+
+
+def _render_report_pdf(html, tid):
+    """Convert a report HTML document into A4 PDF bytes using headless
+    Chromium (via Playwright). The HTML file is written inside REPORT_DIR so
+    the relative '../static/...' screenshot links still resolve."""
+    import json as _json
+    os.makedirs(env.REPORT_DIR, exist_ok=True)
+    base = os.path.join(env.REPORT_DIR, f"_pdf_{tid}")
+    tmp_html = base + ".html"
+    pdf_path = base + ".pdf"
+    try:
+        with open(tmp_html, "w", encoding="utf-8") as f:
+            f.write(html)
+        from pathlib import Path
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(Path(tmp_html).as_uri(), wait_until="load")
+            page.pdf(path=pdf_path, format="A4", print_background=True,
+                     margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
+            browser.close()
+        with open(pdf_path, "rb") as f:
+            return f.read()
+    finally:
+        for fp in (tmp_html, pdf_path):
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except OSError:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# User management (Gestion des utilisateurs)
+# ---------------------------------------------------------------------------
+
+@app.route("/users")
+@admin_required
+def users():
+    all_users = database.list_users()
+    return render_template("users.html", users=all_users)
+
+
+@app.route("/users/new", methods=["GET", "POST"])
+@admin_required
+def user_new():
+    """Create a user. When no password is provided, a temporary password is
+    generated and e-mailed to the user's address."""
+    if request.method == "GET":
+        return redirect(url_for("users"))
+
+    email = (request.form.get("email") or "").strip().lower()
+    full_name = (request.form.get("full_name") or "").strip()
+    role = (request.form.get("role") or "qa") or "qa"
+    password = (request.form.get("password") or "").strip()
+    want_json = (request.headers.get("X-Requested-With") == "fetch"
+                 or request.headers.get("Accept", "").startswith("application/json"))
+
+    if not email:
+        if want_json:
+            return jsonify({"ok": False, "error": "L'adresse e-mail est obligatoire"}), 400
+        flash("L'adresse e-mail est obligatoire", "error")
+        return redirect(url_for("users"))
+
+    temp_password = ""
+    if not password:
+        temp_password = secrets.token_urlsafe(8)
+        password = temp_password
+
+    uid = database.create_user(email, password, full_name, role)
+    if not uid:
+        if want_json:
+            return jsonify({"ok": False, "error": "Cet utilisateur existe déjà"}), 400
+        flash("Cet utilisateur existe déjà", "error")
+        return redirect(url_for("users"))
+
+    email_sent = _notify_new_user(email, password, full_name or email)
+    if want_json:
+        return jsonify({"ok": True, "temp_password": temp_password,
+                        "email_sent": email_sent})
+    if email_sent:
+        flash(f"Utilisateur {email} créé, e-mail envoyé", "success")
+    else:
+        flash(f"Utilisateur {email} créé. Mot de passe temporaire : {password} "
+              "(SMTP non configuré, copiez-le avant de fermer cette page)", "success")
+    return redirect(url_for("users"))
+
+
+def _notify_new_user(to_email, password, name=""):
+    """Attempt to e-mail the temporary password. Queues it in the outbox even
+    without SMTP. Returns True when actually sent."""
+    subject = "Votre compte AUTOMATION"
+    body = (
+        f"<p>Bonjour <strong>{name}</strong>,</p>"
+        f"<p>Un compte a été créé pour vous sur la plateforme AUTOMATION.</p>"
+        f"<ul><li><strong>Identifiant :</strong> {to_email}</li>"
+        f"<li><strong>Mot de passe temporaire :</strong> {password}</li></ul>"
+        f"<p>Changez-le dès votre première connexion depuis "
+        f"<em>Mon profil</em>.</p>")
+    return mailer.send_email(to_email, subject, body)
+
+
+@app.route("/users/<int:uid>/edit", methods=["POST"])
+@admin_required
+def user_edit(uid):
+    want_json = (request.headers.get("X-Requested-With") == "fetch"
+                 or request.headers.get("Accept", "").startswith("application/json"))
+    target = database.get_user_by_id(uid)
+    if not target:
+        if want_json:
+            return jsonify({"ok": False, "error": "Utilisateur introuvable"}), 404
+        flash("Utilisateur introuvable", "error")
+        return redirect(url_for("users"))
+    full_name = (request.form.get("full_name") or "").strip()
+    email = (request.form.get("email") or "").strip().lower()
+    role = (request.form.get("role") or "qa") or "qa"
+    new_password = (request.form.get("new_password") or "").strip()
+    if role != "admin" and getattr(target, "role") == "admin" \
+            and database.count_admins() <= 1:
+        msg = "Impossible de retirer le rôle admin du dernier administrateur"
+        if want_json:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg, "error")
+        return redirect(url_for("users"))
+    ok = database.update_user(uid, full_name=full_name, email=email, role=role)
+    if not ok:
+        if want_json:
+            return jsonify({"ok": False, "error": "Cette adresse e-mail est déjà utilisée"}), 400
+        flash("Cette adresse e-mail est déjà utilisée", "error")
+        return redirect(url_for("users"))
+    if new_password:
+        if len(new_password) < 4:
+            msg = "Le mot de passe doit contenir au moins 4 caractères"
+            if want_json:
+                return jsonify({"ok": False, "error": msg}), 400
+            flash(msg, "error")
+            return redirect(url_for("users"))
+        database.update_user_password(uid, new_password)
+    if want_json:
+        return jsonify({"ok": True})
+    flash("Utilisateur mis à jour", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/users/<int:uid>/toggle-active", methods=["POST"])
+@admin_required
+def user_toggle_active(uid):
+    target = database.get_user_by_id(uid)
+    if not target:
+        flash("Utilisateur introuvable", "error")
+        return redirect(url_for("users"))
+    if uid == session.get("user_id"):
+        flash("Vous ne pouvez pas désactiver votre propre compte", "error")
+        return redirect(url_for("users"))
+    if getattr(target, "role") == "admin" and database.count_admins() <= 1:
+        flash("Impossible de désactiver le dernier administrateur", "error")
+        return redirect(url_for("users"))
+    database.set_user_active(uid, not getattr(target, "is_active", 1))
+    flash("Utilisateur " + ("réactivé" if not getattr(target, "is_active", 1) else "désactivé"),
+          "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    user = database.get_user_by_id(session["user_id"])
+    if not user:
+        session.clear()
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        full_name = (request.form.get("full_name") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
+        current_pw = request.form.get("current_password") or ""
+        new_pw = request.form.get("new_password") or ""
+        if not email:
+            flash("L'adresse e-mail est obligatoire", "error")
+            return redirect(url_for("profile"))
+        if new_pw and not database.validate_credentials(user.email, current_pw):
+            flash("Mot de passe actuel incorrect", "error")
+            return redirect(url_for("profile"))
+        ok = database.update_user(user.id, full_name=full_name, email=email)
+        if not ok:
+            flash("Cette adresse e-mail est déjà utilisée", "error")
+            return redirect(url_for("profile"))
+        if new_pw:
+            database.update_user_password(user.id, new_pw)
+        session["user_email"] = email
+        session["user_name"] = full_name
+        flash("Profil mis à jour", "success")
+        return redirect(url_for("profile"))
+    return render_template("profile.html", user=user)
+
+
+# ---------------------------------------------------------------------------
+# Forgot / reset password
+# ---------------------------------------------------------------------------
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        token = database.create_password_reset(email)
+        if token:
+            link = request.host_url.rstrip("/") + url_for("reset_password", token=token)
+            mailer.send_email(
+                email,
+                "Réinitialisation de votre mot de passe AUTOMATION",
+                f"<p>Bonjour,</p>"
+                f"<p>Cliquez sur le lien ci-dessous pour définir un nouveau mot de passe :</p>"
+                f"<p><a href=\"{link}\">{link}</a></p>"
+                f"<p>Ce lien expire dans 60 minutes.</p>")
+        flash("Si cette adresse existe, un e-mail de réinitialisation a été envoyé.", "info")
+        return redirect(url_for("login"))
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    user_id = database.get_password_reset(token)
+    if not user_id:
+        flash("Lien invalide ou expiré, relancez la demande de réinitialisation.", "error")
+        return redirect(url_for("forgot_password"))
+    if request.method == "POST":
+        pw = request.form.get("password") or ""
+        if len(pw) < 4:
+            flash("Le mot de passe doit contenir au moins 4 caractères", "error")
+            return render_template("reset_password.html", token=token)
+        if pw != (request.form.get("confirm") or ""):
+            flash("La confirmation ne correspond pas au mot de passe", "error")
+            return render_template("reset_password.html", token=token)
+        database.consume_password_reset(token)
+        database.update_user_password(user_id, pw)
+        flash("Mot de passe réinitialisé. Connectez-vous.", "success")
+        return redirect(url_for("login"))
+    return render_template("reset_password.html", token=token)
+
+
+@app.route("/users/<int:uid>/delete", methods=["POST"])
+@admin_required
+def user_delete(uid):
+    if uid == session.get("user_id"):
+        flash("Vous ne pouvez pas supprimer votre propre compte", "error")
+        return redirect(url_for("users"))
+    database.delete_user(uid)
+    flash("Utilisateur supprimé", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/users/<int:uid>/role", methods=["POST"])
+@admin_required
+def user_set_role(uid):
+    role = request.form.get("role", "qa") or "qa"
+    # Prevent removing the last admin
+    if role != "admin":
+        user = database.get_user_by_id(uid)
+        if user and getattr(user, "role", "") == "admin" and database.count_admins() <= 1:
+            flash("Impossible de retirer le rôle admin du dernier administrateur", "error")
+            return redirect(url_for("users"))
+    database.set_user_role(uid, role)
+    flash("Rôle mis à jour", "success")
+    return redirect(url_for("users"))
 
 
 # ---------------------------------------------------------------------------
@@ -1104,6 +1628,10 @@ def _build_ai_plan(pid, fids):
     as a single natural-language instruction, so the runner can drive the
     browser through them. Returns (plan, count) or (None, 0) if nothing
     selected.
+
+    When a functionality's stored steps are structured (they carry a canonical
+    action_type), they are emitted as individual interpreter steps instead of
+    free text.
     """
     fids = [int(f) for f in fids if str(f).isdigit()]
     if not fids:
@@ -1120,9 +1648,36 @@ def _build_ai_plan(pid, fids):
         path = (fn.get("path") or "").strip()
         folder_path = _parse_path(path)
         steps = database.list_steps(fid)
-        step_texts = [s["description"] for s in steps if s["description"]]
         fn_desc = (fn.get("description") or "").strip()
 
+        structured = [
+            {
+                "action_type": (s.get("action_type") or "").upper(),
+                "target": s.get("target") or "",
+                "value": s.get("value") or "",
+                "expected": s.get("expected") or "",
+                "module": module_name,
+                "function": fn["name"],
+            }
+            for s in steps
+            if (s.get("action_type") or "").upper() in
+            _STRUCTURED_KEYS_FOR_PLAN
+        ]
+        if structured:
+            furl = (fn.get("url") or "").strip()
+            if furl:
+                plan.append({
+                    "action_type": "NAVIGUER",
+                    "target": furl,
+                    "value": "",
+                    "expected": "Page chargée",
+                    "module": module_name,
+                    "function": fn["name"],
+                })
+            plan.extend(structured)
+            continue
+
+        step_texts = [s["description"] for s in steps if s["description"]]
         # Si pas d'étapes explicites, parser la description en étapes
         # individuelles pour que l'IA les exécute une par une.
         if not step_texts and fn_desc:
@@ -1151,6 +1706,13 @@ def _build_ai_plan(pid, fids):
             "steps": step_texts,
         })
     return plan, len(plan)
+
+
+_STRUCTURED_KEYS_FOR_PLAN = frozenset([
+    "NAVIGUER", "CLIQUEER", "REMPLIR", "SELECTIONNER", "COCHER",
+    "DECOCHER", "RECHERCHER", "VERIFIER", "ATTENDRE", "ECRAN",
+    "SELECTIONNER_LIGNE",
+])
 
 
 def _parse_path(path):

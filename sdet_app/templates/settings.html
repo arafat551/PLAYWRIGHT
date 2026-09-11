@@ -35,6 +35,8 @@
                 </select>
                 {% elif ftype == 'int' %}
                 <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
+                {% elif ftype == 'password' %}
+                <input type="password" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" autocomplete="off">
                 {% else %}
                 <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
                 {% endif %}
@@ -47,5 +49,32 @@
             <button type="submit" class="btn-primary">Enregistrer</button>
         </div>
     </form>
+</div>
+
+<div class="card">
+    <h2>Test d'envoi d'e-mail</h2>
+    <p class="text-muted text-small" style="margin-bottom:.8rem">
+        La configuration SMTP ci-dessus sert à transmettre le mot de passe temporaire
+        lors de la création d'un utilisateur et les liens de réinitialisation.
+        Vérifiez-la en envoyant un e-mail de test.
+    </p>
+    <form method="POST" action="{{ url_for('settings_send_test_email') }}" class="settings-form">
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="smtp_recipient">Adresse destinataire</label>
+                <span class="text-muted text-small">Recevra l'e-mail de vérification</span>
+            </div>
+            <div class="settings-control">
+                <input type="email" name="recipient" id="smtp_recipient" required
+                       placeholder="vous@exemple.com">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn-primary">Envoyer un e-mail de test</button>
+        </div>
+    </form>
+    <div class="text-muted text-small" style="margin-top:.9rem">
+        État : {% if vals.smtp_host %}SMTP configuré (<code>{{ vals.smtp_host }}:{{ vals.smtp_port }}</code>){% else %}SMTP non configuré — les e-mails restent dans la boîte de sortie (outbox){% endif %}
+    </div>
 </div>
 {% endblock %}
