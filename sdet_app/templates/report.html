@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Rapport - {{ test.project_name }}{% endblock %}
 {% block content %}
+
+{# ── Collect all screenshots for the gallery + lightbox ── #}
+{% set ns_shots = namespace(idx=0, shots=[]) %}
+{% for rname, rrows in report.modules.items() %}
+{% for r in rrows %}
+{% if r.screenshot %}
+{% set _ = ns_shots.shots.append({'src': url_for('static', filename=r.screenshot), 'func': r.function, 'module': rname, 'status': r.status, 'idx': ns_shots.idx}) %}
+{% set ns_shots.idx = ns_shots.idx + 1 %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+
 <div class="page-header report-header">
     <div>
         <h1>
@@ -11,13 +23,19 @@
         </h1>
         <div class="page-subtitle">{{ test.project_name }} — bilan complet de l'exécution</div>
     </div>
-    <a class="btn-secondary" href="{{ url_for('reports') }}">Tous les rapports</a>
+    <div class="run-actions">
+        <a class="btn-primary" href="{{ url_for('report_download', tid=test.id) }}" title="Télécharger le rapport en PDF">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            Télécharger (PDF)
+        </a>
+        <a class="btn-secondary" href="{{ url_for('reports') }}">Tous les rapports</a>
+    </div>
 </div>
 
 <div class="card report-header">
     <div>
         <p><b>Projet :</b> {{ test.project_name }} &nbsp; <b>Environnement :</b> {{ report.environment }} &nbsp; <b>Type :</b> {{ report.run_type }}</p>
-        <p><b>Date :</b> {{ report.date }} &nbsp; <b>Lancé par :</b> {{ report.launched_by }} &nbsp; <b>Durée :</b> {{ report.duration }}</p>
+        <p><b>Date :</b> {{ report.date | dt_fr }} &nbsp; <b>Lancé par :</b> {{ report.launched_by }} &nbsp; <b>Durée :</b> {{ report.duration }}</p>
     </div>
     <div class="report-score">
         <div class="score-circle {{ 'score-good' if report.success_pct>=80 else ('score-mid' if report.success_pct>=50 else 'score-bad') }}">
@@ -41,8 +59,50 @@
     {% endfor %}
 </div>
 
+{# ═══════════════════════════════════════════════════════════════════════════
+   TIMELINE — visual step-by-step flow
+   ═══════════════════════════════════════════════════════════════════════════ #}
+{% if results|length > 0 %}
+<div class="card">
+    <h2>Timeline des étapes</h2>
+    <div class="tl-legend">
+        <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--success)"></span> PASS — étape réussie</span>
+        <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--danger)"></span> FAIL — étape échouée</span>
+        <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--warning)"></span> WARNING — alerte / à vérifier</span>
+        <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--muted)"></span> SKIPPED — étape ignorée</span>
+    </div>
+    <div class="timeline">
+        {% for r in results %}
+        <div class="timeline-item timeline-{{ r.status|lower }}">
+            <div class="timeline-dot">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    {% if r.status == 'PASS' %}<path d="M20 6L9 17l-5-5"/>{% elif r.status == 'FAIL' %}<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>{% elif r.status == 'WARNING' %}<path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>{% else %}<path d="M5 12h14"/>{% endif %}
+                </svg>
+            </div>
+            <div class="timeline-content">
+                <div class="timeline-head">
+                    <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+                    <span class="timeline-func">{{ r.function }}</span>
+                    {% if r.action %}<span class="text-muted text-small"> — {{ r.action }}</span>{% endif %}
+                </div>
+                {% if r.screenshot %}
+                <div class="timeline-shot">
+                    <img src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}" loading="lazy" onclick="openLightboxBySrc('{{ url_for('static', filename=r.screenshot) }}')">
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   DETAILED RESULTS — per-module tables with improved thumbnails
+   ═══════════════════════════════════════════════════════════════════════════ #}
 <div class="card">
     <h2>Résultats par module</h2>
+    {% set ns_step = namespace(counter=0) %}
     {% for m in report.module_stats %}
     <details class="module-block" {% if m.fail > 0 %}open{% endif %}>
         <summary>
@@ -53,12 +113,14 @@
         {% if m.total>0 %}<div class="module-bar"><div class="module-bar-fill" style="width:{{ ((m.pass/m.total)*100)|round }}%"></div></div>{% endif %}
         <table class="data-table">
             <thead>
-                <tr><th>Statut</th><th>Fonction</th><th>Attendu / Obtenu</th><th>Capture</th></tr>
+                <tr><th style="width:44px">#</th><th>Statut</th><th>Fonction</th><th>Attendu / Obtenu</th><th style="width:180px">Capture</th></tr>
             </thead>
             <tbody>
             {% for rname, rrows in report.modules.items() if rname == m.name %}
             {% for r in rrows %}
+            {% set ns_step.counter = ns_step.counter + 1 %}
             <tr class="row-{{ r.status }}">
+                <td class="step-num">{{ ns_step.counter }}</td>
                 <td style="width:78px"><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
                 <td>
                     {{ r.function }}
@@ -68,10 +130,10 @@
                     <span class="text-muted">{{ r.expected }}</span>
                     {% if r.status in ('FAIL', 'WARNING') and r.obtained %}<div class="fail-obtained">Obtenu : {{ r.obtained }}</div>{% endif %}
                 </td>
-                <td style="width:112px">
+                <td>
                     {% if r.screenshot %}
-                    <a target="_blank" href="{{ url_for('static', filename=r.screenshot) }}" title="Ouvrir la capture">
-                        <img class="shot-thumb tiny" src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}">
+                    <a href="javascript:void(0)" class="shot-link" onclick="openLightboxBySrc('{{ url_for('static', filename=r.screenshot) }}')" title="Agrandir la capture">
+                        <img class="shot-thumb report-thumb" src="{{ url_for('static', filename=r.screenshot) }}" alt="capture {{ r.function }}">
                     </a>
                     {% else %}<span class="text-muted text-small">—</span>{% endif %}
                 </td>
@@ -86,6 +148,9 @@
     {% endfor %}
 </div>
 
+{# ═══════════════════════════════════════════════════════════════════════════
+   BUG CARDS
+   ═══════════════════════════════════════════════════════════════════════════ #}
 <div class="card">
     <div class="bug-section-head">
         <h2>Rapports de bug prêts à copier</h2>
@@ -131,11 +196,11 @@
                 <p class="text-small text-muted">
                     Projet : {{ test.project_name }}<br>
                     Environnement : {{ report.environment }}<br>
-                    Date : {{ report.date }} · Durée : {{ report.duration }}<br>
+                    Date : {{ report.date | dt_fr }} · Durée : {{ report.duration }}<br>
                     Lancé par : {{ report.launched_by }}
                 </p>
                 {% if f.screenshot %}
-                <a target="_blank" href="{{ url_for('static', filename=f.screenshot) }}">
+                <a href="javascript:void(0)" onclick="openLightboxBySrc('{{ url_for('static', filename=f.screenshot) }}')">
                     <img class="shot-thumb" src="{{ url_for('static', filename=f.screenshot) }}" alt="capture {{ f.function }}">
                 </a>
                 {% endif %}
@@ -155,7 +220,7 @@
 **Environnement :**
 - Projet : {{ test.project_name }}
 - Environnement : {{ report.environment }}
-- Date : {{ report.date }}
+- Date : {{ report.date | dt_fr }}
 - Durée : {{ report.duration }}
 - Lancé par : {{ report.launched_by }}
 {% if f.screenshot %}
@@ -166,9 +231,94 @@
     <p class="text-success">Aucun bug détecté — rien à copier 🎉</p>
     {% endfor %}
 </div>
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   LIGHTBOX — full-screen screenshot viewer
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="lightbox-overlay" id="lightbox" onclick="closeLightbox(event)">
+    <div class="lightbox-toolbar">
+        <span class="lightbox-counter" id="lb-counter"></span>
+        <span class="lightbox-label" id="lb-label"></span>
+        <div class="lightbox-actions">
+            <button type="button" class="lightbox-btn" onclick="event.stopPropagation();navLightbox(-1)" title="Précédente">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <button type="button" class="lightbox-btn" onclick="event.stopPropagation();navLightbox(1)" title="Suivante">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <button type="button" class="lightbox-btn lightbox-close-btn" onclick="event.stopPropagation();closeLightbox()" title="Fermer">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </div>
+    <div class="lightbox-img-wrap" onclick="event.stopPropagation()">
+        <img id="lb-img" src="" alt="capture">
+    </div>
+</div>
+
+{# ── Lightbox data ── #}
+<script type="application/json" id="lb-data">{{ ns_shots.shots | tojson }}</script>
+
 {% endblock %}
+
 {% block scripts %}
 <script>
+/* ── Lightbox ── */
+var _lbAll = [];
+var _lbIdx = 0;
+
+try {
+    _lbAll = JSON.parse(document.getElementById('lb-data').textContent);
+} catch(e) { _lbAll = []; }
+
+function openLightbox(idx) {
+    _lbIdx = idx;
+    _renderLightbox();
+    document.getElementById('lightbox').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function openLightboxBySrc(src) {
+    for (var i = 0; i < _lbAll.length; i++) {
+        if (_lbAll[i].src === src) { openLightbox(i); return; }
+    }
+    // If not found in gallery, open with just the image
+    document.getElementById('lb-img').src = src;
+    document.getElementById('lb-counter').textContent = '';
+    document.getElementById('lb-label').textContent = '';
+    document.getElementById('lightbox').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox(e) {
+    if (e && e.target && e.target.id !== 'lightbox') return;
+    document.getElementById('lightbox').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+function navLightbox(dir) {
+    if (!_lbAll.length) return;
+    _lbIdx = (_lbIdx + dir + _lbAll.length) % _lbAll.length;
+    _renderLightbox();
+}
+
+function _renderLightbox() {
+    var s = _lbAll[_lbIdx];
+    if (!s) return;
+    document.getElementById('lb-img').src = s.src;
+    document.getElementById('lb-counter').textContent = (_lbIdx + 1) + ' / ' + _lbAll.length;
+    document.getElementById('lb-label').textContent = s.module + ' — ' + s.func;
+}
+
+document.addEventListener('keydown', function(e) {
+    var lb = document.getElementById('lightbox');
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft') navLightbox(-1);
+    else if (e.key === 'ArrowRight') navLightbox(1);
+});
+
+/* ── Copy bug reports ── */
 function _copyText(text){
     if (navigator.clipboard && window.isSecureContext) {
         return navigator.clipboard.writeText(text);

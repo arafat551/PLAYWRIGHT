@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Nouvel utilisateur - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+            Nouvel utilisateur
+        </h1>
+    </div>
+    <a class="btn-secondary" href="{{ url_for('users') }}">Retour à la liste</a>
+</div>
+
+<div class="card">
+    <form method="POST" class="settings-form">
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="full_name">Nom complet</label>
+                <span class="text-muted text-small">Nom affiché de l'utilisateur</span>
+            </div>
+            <div class="settings-control">
+                <input type="text" name="full_name" id="full_name" placeholder="Ex : Marie Dupont" required>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="email">Adresse e-mail</label>
+                <span class="text-muted text-small">Sert d'identifiant de connexion</span>
+            </div>
+            <div class="settings-control">
+                <input type="email" name="email" id="email" placeholder="utilisateur@exemple.com" required>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="password">Mot de passe</label>
+                <span class="text-muted text-small">Minimum 4 caractères recommandés</span>
+            </div>
+            <div class="settings-control">
+                <input type="password" name="password" id="password" placeholder="Saisir un mot de passe" required>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div class="settings-info">
+                <label for="role">Rôle</label>
+                <span class="text-muted text-small">Administrateur peut gérer les paramètres et les utilisateurs</span>
+            </div>
+            <div class="settings-control">
+                <select name="role" id="role">
+                    <option value="qa" selected>QA — exécute et analyse les tests</option>
+                    <option value="admin">Administrateur — accès complet</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-actions">
+            <a href="{{ url_for('users') }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Créer l'utilisateur</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

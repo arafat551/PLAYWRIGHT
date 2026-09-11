@@ -35,8 +35,22 @@
 <div class="test-status">
     <span class="status-dot {{ test.status }}"></span>
     <span class="badge badge-{{ test.status }}">{{ test.status }}</span>
-    <span class="text-muted">{{ test.run_type }} - Projet : {{ test.project_name }}</span>
+    <span class="text-muted">{{ test.run_type }} — Projet : {{ test.project_name }}</span>
 </div>
+
+{% if progress and test.status in ('running','waiting_otp','otp_submitted') %}
+<div class="card" style="margin-top:1rem">
+    <div class="progress-wrap">
+        <div class="progress-head">
+            <span>Progression de l'exécution</span>
+            <span class="text-muted">{{ progress[0] }} / {{ progress[1] }} étapes — <b>{{ progress[2] }}%</b></span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width:{{ progress[2] }}%"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <div class="stats-inline">
     <div class="stat-card">
@@ -53,11 +67,11 @@
     </div>
     <div class="stat-card">
         <div class="stat-number stat-warning" style="font-size:1.3rem">{{ test.warning }}</div>
-        <div class="stat-label">WARNING</div>
+        <div class="stat-label">AVERTISSEMENT</div>
     </div>
     <div class="stat-card">
         <div class="stat-number" style="font-size:1.3rem;color:#9ca3af">{{ test.skipped }}</div>
-        <div class="stat-label">SKIPPED</div>
+        <div class="stat-label">IGNORÉ</div>
     </div>
 </div>
 
@@ -101,7 +115,6 @@
 {% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
 setInterval(()=>{ location.reload(); }, 3000);
 {% elif test.status in ('completed','failed','cancelled') %}
-// Le test est terminé : ouvrir automatiquement le rapport généré.
 window.location.replace("{{ url_for('report_detail', tid=test.id) }}");
 {% endif %}
 </script>

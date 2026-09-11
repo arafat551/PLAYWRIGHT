@@ -36,3 +36,11 @@ def login(client):
                     follow_redirects=True)
     assert r.status_code == 200
     return client
+
+
+@pytest.fixture()
+def two_users(_init_db):
+    from sdet_app import database
+    database.create_user("alice@x.test", "pwA", "Alice", "qa")
+    database.create_user("bob@x.test", "pwB", "Bob", "qa")
+    return "alice@x.test", "bob@x.test"

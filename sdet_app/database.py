@@ -2,6 +2,7 @@ import sqlite3
 import hashlib
 import json
 import os
+import secrets
 from datetime import datetime
 
 from .config import env
@@ -14,6 +15,9 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    full_name TEXT DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'qa',
+    is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -27,6 +31,7 @@ CREATE TABLE IF NOT EXISTS projects (
     environment TEXT NOT NULL DEFAULT 'STAGING',
     comments TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
+    owner_id INTEGER DEFAULT NULL,
     created_by TEXT DEFAULT '',
     updated_by TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
@@ -74,6 +79,7 @@ CREATE TABLE IF NOT EXISTS test_runs (
     plan_json TEXT DEFAULT '[]',
     otp_code TEXT DEFAULT '',
     launched_by TEXT DEFAULT '',
+    owner_id INTEGER DEFAULT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
@@ -133,6 +139,23 @@ CREATE TABLE IF NOT EXISTS test_steps (
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (functionality_id) REFERENCES test_functionalities(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient TEXT NOT NULL,
+    subject TEXT DEFAULT '',
+    body_html TEXT DEFAULT '',
+    sent_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -178,12 +201,49 @@ def init_db(path=None):
         if col not in scols:
             db.execute(f"ALTER TABLE test_steps ADD COLUMN {col} TEXT DEFAULT '{default}'")
 
+    # Migration: user roles / names for pre-existing databases
+    ucols = [r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()]
+    if "role" not in ucols:
+        db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'qa'")
+    if "is_active" not in ucols:
+        db.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+    if "full_name" not in ucols:
+        db.execute("ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''")
+
+    # Migration: project / test ownership (owner_id) for user isolation
+    pcols = [r[1] for r in db.execute("PRAGMA table_info(projects)").fetchall()]
+    if "owner_id" not in pcols:
+        db.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER DEFAULT NULL")
+    tcols = [r[1] for r in db.execute("PRAGMA table_info(test_runs)").fetchall()]
+    if "owner_id" not in tcols:
+        db.execute("ALTER TABLE test_runs ADD COLUMN owner_id INTEGER DEFAULT NULL")
+
     # Bootstrap admin if no user exists
     cur = db.execute("SELECT id FROM users LIMIT 1")
     if cur.fetchone() is None:
         db.execute(
-            "INSERT INTO users (email, password_hash) VALUES (?, ?)",
-            (env.ADMIN_EMAIL, hash_password(env.ADMIN_PASSWORD)))
+            "INSERT INTO users (email, password_hash, full_name, role) VALUES (?, ?, ?, 'admin')",
+            (env.ADMIN_EMAIL, hash_password(env.ADMIN_PASSWORD), "Administrateur"))
+        db.commit()
+    else:
+        # Promote the configured admin email, and guarantee at least one admin
+        db.execute("UPDATE users SET role='admin' WHERE email=?", (env.ADMIN_EMAIL,))
+        any_admin = db.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+        if not any_admin:
+            first = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+            if first:
+                db.execute("UPDATE users SET role='admin' WHERE id=?", (first["id"],))
+        db.commit()
+
+    # Backfill ownership: existing data belongs to the first admin by default
+    adm = db.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+    if adm:
+        db.execute("UPDATE projects SET owner_id=? WHERE owner_id IS NULL", (adm["id"],))
+        db.execute(
+            "UPDATE test_runs SET owner_id=COALESCE(owner_id, "
+            "(SELECT owner_id FROM projects WHERE projects.id=test_runs.project_id), ?) "
+            "WHERE owner_id IS NULL",
+            (adm["id"],))
         db.commit()
 
     db.close()
@@ -197,7 +257,7 @@ def init_db(path=None):
 def get_user_by_credentials(email, password):
     db = get_connection()
     row = db.execute(
-        "SELECT * FROM users WHERE email=? AND password_hash=?",
+        "SELECT * FROM users WHERE email=? AND password_hash=? AND is_active=1",
         (email, hash_password(password))).fetchone()
     db.close()
     return User.from_row(row) if row else None
@@ -208,6 +268,175 @@ def get_user(email):
     row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
     db.close()
     return User.from_row(row) if row else None
+
+
+def get_user_by_id(uid):
+    db = get_connection()
+    row = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    db.close()
+    return User.from_row(row) if row else None
+
+
+def list_users():
+    db = get_connection()
+    rows = db.execute("SELECT * FROM users ORDER BY id").fetchall()
+    db.close()
+    return [User.from_row(r) for r in rows]
+
+
+def create_user(email, password, full_name="", role="qa"):
+    email = email.strip().lower()
+    db = get_connection()
+    exists = db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if exists:
+        db.close()
+        return None
+    cur = db.execute(
+        "INSERT INTO users (email, password_hash, full_name, role) VALUES (?,?,?,?)",
+        (email, hash_password(password), full_name.strip(), role or "qa"))
+    db.commit()
+    uid = cur.lastrowid
+    db.close()
+    return uid
+
+
+def delete_user(uid):
+    db = get_connection()
+    db.execute("DELETE FROM users WHERE id=?", (uid,))
+    db.commit()
+    db.close()
+
+
+def set_user_role(uid, role):
+    db = get_connection()
+    db.execute("UPDATE users SET role=? WHERE id=?", (role, uid))
+    db.commit()
+    db.close()
+
+
+def validate_credentials(email, password):
+    """True when the (active) user & password match. Used e.g. before changing
+    the password from the profile."""
+    db = get_connection()
+    row = db.execute(
+        "SELECT password_hash FROM users WHERE email=? AND is_active=1",
+        (email,)).fetchone()
+    db.close()
+    return bool(row) and row["password_hash"] == hash_password(password)
+
+
+def update_user(uid, full_name=None, email=None, role=None):
+    """Update profile info. Email must stay unique (returns False otherwise)."""
+    db = get_connection()
+    cur = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not cur:
+        db.close()
+        return None
+    if email is not None:
+        email = email.strip().lower()
+        taken = db.execute(
+            "SELECT id FROM users WHERE email=? AND id<>?", (email, uid)).fetchone()
+        if taken:
+            db.close()
+            return False
+    db.execute(
+        "UPDATE users SET full_name=?, email=?, role=? WHERE id=?",
+        (cur["full_name"] if full_name is None else full_name.strip(),
+         cur["email"] if email is None else email,
+         cur["role"] if role is None else role,
+         uid))
+    db.commit()
+    db.close()
+    return True
+
+
+def update_user_password(uid, new_password):
+    db = get_connection()
+    db.execute("UPDATE users SET password_hash=? WHERE id=?",
+               (hash_password(new_password), uid))
+    db.commit()
+    db.close()
+
+
+def set_user_active(uid, active):
+    db = get_connection()
+    db.execute("UPDATE users SET is_active=? WHERE id=?",
+               (1 if active else 0, uid))
+    db.commit()
+    db.close()
+
+
+def count_active_users():
+    db = get_connection()
+    n = db.execute("SELECT COUNT(*) FROM users WHERE is_active=1").fetchone()[0]
+    db.close()
+    return n
+
+
+def create_password_reset(email):
+    """Create a reset token for the given e-mail and return the plain token,
+    or None when the address does not belong to an active user."""
+    db = get_connection()
+    row = db.execute(
+        "SELECT id FROM users WHERE email=? AND is_active=1",
+        (email.strip().lower(),)).fetchone()
+    if not row:
+        db.close()
+        return None
+    token = secrets.token_urlsafe(32)
+    db.execute("DELETE FROM password_resets WHERE user_id=?", (row["id"],))
+    db.execute(
+        "INSERT INTO password_resets (user_id, token_hash, expires_at) "
+        "VALUES (?, ?, datetime('now', '+60 minutes'))",
+        (row["id"], hash_password(token)))
+    db.commit()
+    db.close()
+    return token
+
+
+def get_password_reset(token):
+    """Return the user id behind a valid (unexpired) token, else None."""
+    db = get_connection()
+    hash_digest = hash_password(token)
+    row = db.execute(
+        "SELECT user_id, expires_at FROM password_resets "
+        "WHERE token_hash=? AND expires_at > datetime('now')",
+        (hash_digest,)).fetchone()
+    db.close()
+    return row["user_id"] if row else None
+
+
+def consume_password_reset(token):
+    db = get_connection()
+    db.execute("DELETE FROM password_resets WHERE token_hash=?",
+               (hash_password(token),))
+    db.commit()
+    db.close()
+
+
+def queue_outbox(recipient, subject, body_html):
+    """Record a generated e-mail. Mails are delivered by the mailer when SMTP
+    is configured, and always kept here as a trace (and for tests)."""
+    db = get_connection()
+    db.execute(
+        "INSERT INTO outbox (recipient, subject, body_html) VALUES (?,?,?)",
+        (recipient, subject, body_html))
+    db.commit()
+    db.close()
+
+
+def list_outbox():
+    db = get_connection()
+    rows = db.execute("SELECT * FROM outbox ORDER BY id DESC").fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def count_admins():
+    db = get_connection()
+    n = db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
+    db.close()
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +647,13 @@ def scenario_tree(pid):
 # Projects
 # ---------------------------------------------------------------------------
 
-def list_projects():
+def list_projects(owner_id=None):
     db = get_connection()
+    where = ""
+    args = ()
+    if owner_id is not None:
+        where = " WHERE p.owner_id=?"
+        args = (owner_id,)
     rows = db.execute(
         """SELECT p.*,
             (SELECT COUNT(*) FROM test_runs t WHERE t.project_id=p.id AND t.status='completed') as test_count,
@@ -428,7 +662,7 @@ def list_projects():
             (SELECT COALESCE(SUM(t.warning),0) FROM test_runs t WHERE t.project_id=p.id AND t.status='completed') as warn_count,
             (SELECT COALESCE(SUM(t.passed+t.failed+t.warning+t.skipped),0) FROM test_runs t WHERE t.project_id=p.id AND t.status='completed') as total_count,
             (SELECT t.finished_at FROM test_runs t WHERE t.project_id=p.id AND t.status IN ('completed','failed') ORDER BY t.finished_at DESC LIMIT 1) as last_test_date
-            FROM projects p ORDER BY p.updated_at DESC""").fetchall()
+            FROM projects p""" + where + " ORDER BY p.updated_at DESC", args).fetchall()
     db.close()
     return [dict(r) for r in rows]
 
@@ -440,16 +674,16 @@ def get_project(pid):
     return Project.from_row(row) if row else None
 
 
-def create_project(data, editor="", encrypt=None, decrypt=None):
+def create_project(data, editor="", encrypt=None, decrypt=None, owner_id=None):
     db = get_connection()
     cur = db.execute(
         """INSERT INTO projects
            (name, url, email, password_enc, auth_type, environment, comments,
-            created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+            owner_id, created_by, updated_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (data["name"], data["url"], data["email"], encrypt(data["password"]),
          data["auth_type"], data["environment"], data["comments"],
-         editor, editor))
+         owner_id, editor, editor))
     db.commit()
     pid = cur.lastrowid
     db.close()
@@ -548,39 +782,56 @@ def update_page_status(pid, url, status):
 # Test runs + results
 # ---------------------------------------------------------------------------
 
-def create_test_run(pid, run_type, launched_by="", plan=None):
+def create_test_run(pid, run_type, launched_by="", plan=None, owner_id=None):
+    if owner_id is None:
+        proj = get_project(pid)
+        owner_id = (proj.row or {}).get("owner_id") if proj else None
     db = get_connection()
     cur = db.execute(
-        "INSERT INTO test_runs (project_id, run_type, launched_by, plan_json) VALUES (?,?,?,?)",
-        (pid, run_type, launched_by, json.dumps(plan or [], ensure_ascii=False)))
+        "INSERT INTO test_runs (project_id, run_type, launched_by, plan_json, owner_id) VALUES (?,?,?,?,?)",
+        (pid, run_type, launched_by, json.dumps(plan or [], ensure_ascii=False), owner_id))
     db.commit()
     tid = cur.lastrowid
     db.close()
     return tid
 
 
-def get_test_run(tid):
+def get_test_run(tid, owner_id=None):
     db = get_connection()
-    row = db.execute(
-        """SELECT t.*, p.name as project_name, p.id as project_id, p.url as project_url,
+    sql = """SELECT t.*, p.name as project_name, p.id as project_id, p.url as project_url,
            p.environment as project_env
            FROM test_runs t JOIN projects p ON t.project_id = p.id
-           WHERE t.id=?""", (tid,)).fetchone()
+           WHERE t.id=?"""
+    args = [tid]
+    if owner_id is not None:
+        sql += " AND t.owner_id=?"
+        args.append(owner_id)
+    row = db.execute(sql, args).fetchone()
     db.close()
     return TestRun.from_row(row) if row else None
 
 
-def list_test_runs(pid=None):
+def list_test_runs(pid=None, owner_id=None):
     db = get_connection()
     if pid:
-        rows = db.execute(
-            """SELECT t.*, p.name as project_name FROM test_runs t
+        sql = """SELECT t.*, p.name as project_name FROM test_runs t
                JOIN projects p ON t.project_id=p.id
-               WHERE t.project_id=? ORDER BY t.started_at DESC""", (pid,)).fetchall()
+               WHERE t.project_id=?"""
+        args = [pid]
+        if owner_id is not None:
+            sql += " AND t.owner_id=?"
+            args.append(owner_id)
+        sql += " ORDER BY t.started_at DESC"
+        rows = db.execute(sql, args).fetchall()
     else:
-        rows = db.execute(
-            """SELECT t.*, p.name as project_name FROM test_runs t
-               JOIN projects p ON t.project_id=p.id ORDER BY t.started_at DESC""").fetchall()
+        sql = """SELECT t.*, p.name as project_name FROM test_runs t
+               JOIN projects p ON t.project_id=p.id"""
+        args = []
+        if owner_id is not None:
+            sql += " WHERE t.owner_id=?"
+            args.append(owner_id)
+        sql += " ORDER BY t.started_at DESC"
+        rows = db.execute(sql, args).fetchall()
     db.close()
     return [TestRun.from_row(r) for r in rows]
 
@@ -692,6 +943,29 @@ def test_status(tid):
     return row["status"] if row else None
 
 
+def run_progress(tid):
+    """Return (done, total, percent) for a running automated test run.
+
+    total is derived from the stored plan (plan_json) when available;
+    otherwise from the results already recorded.
+    """
+    db = get_connection()
+    row = db.execute("SELECT plan_json FROM test_runs WHERE id=?", (tid,)).fetchone()
+    done = db.execute(
+        "SELECT COUNT(*) FROM test_results WHERE test_id=?", (tid,)).fetchone()[0]
+    db.close()
+    total = 0
+    if row and row["plan_json"]:
+        try:
+            total = len(json.loads(row["plan_json"]))
+        except Exception:
+            total = 0
+    if total <= 0:
+        total = max(done, 1)
+    pct = min(round((done / total) * 100), 100) if total > 0 else 0
+    return done, total, pct
+
+
 def request_cancel(tid):
     db = get_connection()
     db.execute(
@@ -768,35 +1042,67 @@ def delete_settings(keys):
 # Dashboard metrics + history
 # ---------------------------------------------------------------------------
 
-def dashboard_metrics():
+def dashboard_metrics(owner_id=None):
     db = get_connection()
 
     def one(sql, args=()):
         return db.execute(sql, args).fetchone()[0]
 
-    total_projects = one("SELECT COUNT(*) FROM projects")
-    active_projects = one("SELECT COUNT(*) FROM projects WHERE status='active'")
-    total_tests = one("SELECT COUNT(*) FROM test_runs WHERE status='completed'")
+    if owner_id is not None:
+        total_projects = one("SELECT COUNT(*) FROM projects WHERE owner_id=?", (owner_id,))
+        active_projects = one("SELECT COUNT(*) FROM projects WHERE status='active' AND owner_id=?", (owner_id,))
+        total_tests = one("SELECT COUNT(*) FROM test_runs WHERE status='completed' AND owner_id=?", (owner_id,))
+    else:
+        total_projects = one("SELECT COUNT(*) FROM projects")
+        active_projects = one("SELECT COUNT(*) FROM projects WHERE status='active'")
+        total_tests = one("SELECT COUNT(*) FROM test_runs WHERE status='completed'")
 
-    def stat(row, col):
-        sql = f"SELECT COALESCE(SUM({col}),0) FROM test_runs WHERE status='completed'"
-        if row:
-            sql += " AND project_id=?"
-            return one(sql, (row["project_id"],))
-        return one(sql)
-
-    total_passed = one("SELECT COALESCE(SUM(passed),0) FROM test_runs WHERE status='completed'")
-    total_failed = one("SELECT COALESCE(SUM(failed),0) FROM test_runs WHERE status='completed'")
-    total_warning = one("SELECT COALESCE(SUM(warning),0) FROM test_runs WHERE status='completed'")
-    total_skipped = one("SELECT COALESCE(SUM(skipped),0) FROM test_runs WHERE status='completed'")
+    owner_clause = " AND owner_id=?" if owner_id is not None else ""
+    owner_args = (owner_id,) if owner_id is not None else ()
+    total_passed = one(f"SELECT COALESCE(SUM(passed),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_failed = one(f"SELECT COALESCE(SUM(failed),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_warning = one(f"SELECT COALESCE(SUM(warning),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_skipped = one(f"SELECT COALESCE(SUM(skipped),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
     total_all = total_passed + total_failed + total_warning + total_skipped
     success_rate = round((total_passed / total_all) * 100) if total_all > 0 else 0
 
     recent = db.execute(
         """SELECT t.*, p.name as project_name FROM test_runs t
            JOIN projects p ON t.project_id=p.id
-           ORDER BY t.started_at DESC LIMIT 10""").fetchall()
+           {owner} ORDER BY t.started_at DESC LIMIT 3""".format(
+            owner="WHERE t.owner_id=?" if owner_id is not None else ""),
+        (owner_id,) if owner_id is not None else ()).fetchall()
+
+    per_project = db.execute(
+        """SELECT p.name as name,
+                  COUNT(t.id) as runs,
+                  COALESCE(SUM(t.passed),0) as passed,
+                  COALESCE(SUM(t.failed),0) as failed,
+                  COALESCE(SUM(t.warning),0) as warning,
+                  COALESCE(SUM(t.skipped),0) as skipped
+           FROM projects p
+           LEFT JOIN test_runs t ON t.project_id=p.id AND t.status='completed'
+           {owner}
+           GROUP BY p.id
+           ORDER BY p.name""".format(
+            owner="WHERE p.owner_id=?" if owner_id is not None else ""),
+        (owner_id,) if owner_id is not None else ()).fetchall()
     db.close()
+
+    pp_list = []
+    for p in per_project:
+        total = p["passed"] + p["failed"] + p["warning"] + p["skipped"]
+        pp_list.append({
+            "name": p["name"],
+            "runs": p["runs"],
+            "passed": p["passed"],
+            "failed": p["failed"],
+            "warning": p["warning"],
+            "skipped": p["skipped"],
+            "total": total,
+            "success_rate": round((p["passed"] / total) * 100) if total > 0 else 0,
+        })
+
     return {
         "total_projects": total_projects,
         "active_projects": active_projects,
@@ -807,4 +1113,5 @@ def dashboard_metrics():
         "total_skipped": total_skipped,
         "success_rate": success_rate,
         "recent": [dict(r) for r in recent],
+        "per_project": pp_list,
     }

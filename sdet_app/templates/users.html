@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Utilisateurs - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            UTILISATEURS
+        </h1>
+        <div class="page-subtitle">Gestion des comptes et des rôles</div>
+    </div>
+    <button type="button" class="btn-primary" onclick="openModal('addUserModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Ajouter un utilisateur
+    </button>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr><th>Nom</th><th>Adresse e-mail</th><th>Rôle</th><th>Créé le</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr {% if not u.is_active %}style="opacity:0.5"{% endif %}>
+                <td><b>{{ u.full_name or '—' }}</b></td>
+                <td>{{ u.email }}</td>
+                <td>
+                    {% if u.role == 'admin' %}
+                    <span class="sev sev-critical" style="font-size:.72rem">Administrateur</span>
+                    {% else %}
+                    <span class="badge badge-PASS" style="font-size:.72rem">QA</span>
+                    {% endif %}
+                    {% if not u.is_active %}
+                    <span class="badge" style="font-size:.65rem;background:#e2e8f0;color:#475569">Désactivé</span>
+                    {% endif %}
+                </td>
+                <td class="text-muted text-small">{{ u.created_at[:16] if u.created_at else '—' }}</td>
+                <td>
+                    <div class="action-btns">
+                        <button type="button" class="action-btn view" title="Afficher le détail"
+                                data-name="{{ u.full_name or '' }}"
+                                data-email="{{ u.email }}"
+                                data-role="{{ u.role }}"
+                                data-created="{{ u.created_at[:16] if u.created_at else '—' }}"
+                                data-active="{{ 'Oui' if u.is_active else 'Non' }}"
+                                onclick="openView(this)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            Visualiser
+                        </button>
+                        <button type="button" class="action-btn edit" title="Modifier"
+                                data-uid="{{ u.id }}"
+                                data-name="{{ u.full_name or '' }}"
+                                data-email="{{ u.email }}"
+                                data-role="{{ u.role }}"
+                                onclick="openEdit(this)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+                            Modifier
+                        </button>
+                        {% if u.id != session.user_id and u.is_active %}
+                        <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline" onsubmit="return confirm('Désactiver ce compte ? Il ne pourra plus se connecter.')">
+                            <button type="submit" class="action-btn danger" title="Désactiver">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
+                                Désactiver
+                            </button>
+                        </form>
+                        {% elif u.id != session.user_id and not u.is_active %}
+                        <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline">
+                            <button type="submit" class="action-btn success" title="Réactiver">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
+                                Réactiver
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-muted text-center">Aucun utilisateur</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Modal : ajouter un utilisateur -->
+<div class="modal-overlay" id="addUserModal">
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head">
+            <h3>Ajouter un utilisateur</h3>
+            <button type="button" class="modal-close" onclick="closeModal('addUserModal')" aria-label="Fermer">&times;</button>
+        </div>
+        <form id="addUserForm">
+            <div class="modal-body">
+                <div class="modal-error" id="addError"></div>
+                <div class="settings-row">
+                    <label for="au_full_name">Nom complet</label>
+                    <input type="text" name="full_name" id="au_full_name" placeholder="Ex : Marie Dupont">
+                </div>
+                <div class="settings-row">
+                    <label for="au_email">Adresse e-mail</label>
+                    <input type="email" name="email" id="au_email" placeholder="utilisateur@exemple.com" required>
+                </div>
+                <div class="settings-row">
+                    <label for="au_password">Mot de passe <span class="text-muted font-normal">(optionnel)</span></label>
+                    <input type="text" name="password" id="au_password" placeholder="Laisser vide pour générer un mot de passe temporaire">
+                    <span class="text-muted text-small">Vide = mot de passe temporaire envoyé par e-mail à l'utilisateur</span>
+                </div>
+                <div class="settings-row">
+                    <label for="au_role">Rôle</label>
+                    <select name="role" id="au_role">
+                        <option value="qa" selected>QA — exécute et analyse les tests</option>
+                        <option value="admin">Administrateur — accès complet</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal('addUserModal')">Annuler</button>
+                    <button type="submit" class="btn-primary">Créer l'utilisateur</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal : visualiser -->
+<div class="modal-overlay" id="viewUserModal">
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head">
+            <h3>Détail de l'utilisateur</h3>
+            <button type="button" class="modal-close" onclick="closeModal('viewUserModal')" aria-label="Fermer">&times;</button>
+        </div>
+        <div class="modal-body">
+            <table class="detail-table">
+                <tbody>
+                    <tr><th>Nom</th><td id="vv_name">—</td></tr>
+                    <tr><th>Adresse e-mail</th><td id="vv_email">—</td></tr>
+                    <tr><th>Rôle</th><td id="vv_role">—</td></tr>
+                    <tr><th>Créé le</th><td id="vv_created">—</td></tr>
+                    <tr><th>Statut</th><td id="vv_active">—</td></tr>
+                </tbody>
+            </table>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('viewUserModal')">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal : modifier -->
+<div class="modal-overlay" id="editUserModal">
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head">
+            <h3>Modifier l'utilisateur</h3>
+            <button type="button" class="modal-close" onclick="closeModal('editUserModal')" aria-label="Fermer">&times;</button>
+        </div>
+        <form id="editUserForm">
+            <div class="modal-body">
+                <div class="modal-error" id="editError"></div>
+                <input type="hidden" name="uid" id="eu_uid">
+                <div class="settings-row">
+                    <label for="eu_full_name">Nom complet</label>
+                    <input type="text" name="full_name" id="eu_full_name" placeholder="Ex : Marie Dupont">
+                </div>
+                <div class="settings-row">
+                    <label for="eu_email">Adresse e-mail</label>
+                    <input type="email" name="email" id="eu_email" placeholder="utilisateur@exemple.com" required>
+                </div>
+                <div class="settings-row">
+                    <label for="eu_password">Nouveau mot de passe <span class="text-muted font-normal">(optionnel)</span></label>
+                    <input type="password" name="new_password" id="eu_password" placeholder="Laisser vide pour ne pas changer" autocomplete="new-password">
+                </div>
+                <div class="settings-row">
+                    <label for="eu_role">Rôle</label>
+                    <select name="role" id="eu_role">
+                        <option value="qa">QA — exécute et analyse les tests</option>
+                        <option value="admin">Administrateur — accès complet</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal('editUserModal')">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+    function openModal(id){
+        var m = document.getElementById(id);
+        if (!m) return;
+        m.classList.add('open');
+        var inputs = m.querySelectorAll('input,select');
+        if (inputs.length) setTimeout(function(){ inputs[0].focus(); }, 60);
+    }
+    function closeModal(id){
+        var m = document.getElementById(id);
+        if (m) m.classList.remove('open');
+    }
+    window.openModal = openModal;
+    window.closeModal = closeModal;
+    window.addEventListener('keydown', function(e){
+        if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(closeModal);
+    });
+    document.querySelectorAll('.modal-overlay').forEach(function(ov){
+        ov.addEventListener('click', function(e){
+            if (e.target === ov) ov.classList.remove('open');
+        });
+    });
+
+    window.openView = function(btn){
+        document.getElementById('vv_name').textContent = btn.dataset.name || '—';
+        document.getElementById('vv_email').textContent = btn.dataset.email || '—';
+        document.getElementById('vv_role').textContent = btn.dataset.role === 'admin' ? 'Administrateur' : 'QA';
+        document.getElementById('vv_created').textContent = btn.dataset.created || '—';
+        document.getElementById('vv_active').textContent = btn.dataset.active || '—';
+        openModal('viewUserModal');
+    };
+
+    window.openEdit = function(btn){
+        document.getElementById('eu_uid').value = btn.dataset.uid;
+        document.getElementById('eu_full_name').value = btn.dataset.name || '';
+        document.getElementById('eu_email').value = btn.dataset.email || '';
+        document.getElementById('eu_role').value = btn.dataset.role === 'admin' ? 'admin' : 'qa';
+        document.getElementById('eu_password').value = '';
+        document.getElementById('editError').classList.remove('show');
+        openModal('editUserModal');
+    };
+
+    var addForm = document.getElementById('addUserForm');
+    if (addForm) {
+        addForm.addEventListener('submit', function(ev){
+            ev.preventDefault();
+            var fd = new FormData(addForm);
+            fetch('/users/new', {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-Requested-With': 'fetch' }
+            }).then(function(r){
+                try { return r.json().then(function(d){ return {status: r.status, data: d}; }); }
+                catch (e) { return {status: r.status, data: {}}; }
+            }).then(function(res){
+                var err = document.getElementById('addError');
+                if (res.status !== 200) {
+                    err.textContent = res.data.error || 'Une erreur est survenue';
+                    err.classList.add('show');
+                    return;
+                }
+                var msg = 'Utilisateur créé.';
+                if (res.data.temp_password) {
+                    msg = 'Utilisateur créé. Mot de passe temporaire : ' + res.data.temp_password;
+                    if (!res.data.email_sent) msg += ' (SMTP non configuré, copiez-le !)';
+                } else if (res.data.email_sent) {
+                    msg = 'Utilisateur créé, e-mail envoyé.';
+                }
+                alert(msg);
+                window.location.reload();
+            });
+        });
+    }
+
+    var editForm = document.getElementById('editUserForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(ev){
+            ev.preventDefault();
+            var fd = new FormData(editForm);
+            fetch('/users/' + fd.get('uid') + '/edit', {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-Requested-With': 'fetch' }
+            }).then(function(r){
+                return r.json().then(function(d){ return {status: r.status, data: d}; });
+            }).then(function(res){
+                var err = document.getElementById('editError');
+                if (res.status !== 200) {
+                    err.textContent = res.data.error || 'Une erreur est survenue';
+                    err.classList.add('show');
+                    return;
+                }
+                window.location.reload();
+            });
+        });
+    }
+})();
+</script>
+{% endblock %}
