@@ -1000,10 +1000,10 @@ _GENERIC_MENU_WORDS = (
 _SKIP_URL_SEGMENTS = ("login", "logout", "signin", "signout", "register",
                       "inscription", "connexion", "deconnexion", "password",
                       "motdepasse", "oubli", "recovery", "forgot", "reset",
-                      "help", "aide", "documentation", "support", "settings",
-                      "parametres", "reglages", "profile", "mes", "my-account",
-                      "mon-compte", "theme", "lang", "locale", "asset",
-                      "api", "auth", "import-export")
+                      "help", "aide", "documentation", "support", "switch",
+                      "profile", "mes", "my-account", "mon-compte", "theme",
+                      "lang", "locale", "asset", "api", "auth",
+                      "import-export")
 
 # URL path segments at the END of a link that indicate an action, not a page.
 _ACTION_URL_SEGMENTS = ("new", "create", "ajouter", "edit", "modifier",
@@ -1189,15 +1189,22 @@ def find_module_url(page, module_name, base_url=""):
 
 
 def discover_modules(page, base_url=""):
-    """Detect the application's modules from the navigation.
+    """Detect the application's modules from the navigation, generically —
+    nothing is hardcoded: everything comes from the scanned application.
 
-    Modules are grouped either by their top-level sidebar section (preferred:
-    each expandable section is one module, its URL is the section's home) or,
-    when no sidebar tree is available, by the FIRST path segment of their nav
-    links (e.g. '/crm', '/ims'). Returns a list of dicts:
-        [{"name": str, "url": str}]
+    Modules are found from the actual menu structure:
+      - Preferred: each top-level section of the sidebar tree is one module
+        (an expandable section -> its home link URL + its child links;
+        a plain top-level page -> a single-page module).
+      - Fallback: when no sidebar tree is available, modules are grouped by
+        the FIRST path segment of their navigation links.
+      - Last resort: label-only discovery.
 
-    Falls back to label-only discovery when no hrefs are available.
+    Returns a list of dicts:
+        [{"name": str, "url": str, "links": [{"label", "href"}, ...]}]
+    where ``links`` are the module's own menu children (used afterwards to
+    discover its functionalities, even when those live under a different
+    URL prefix).
     """
     _expand_accordion_menus(page)
     page.wait_for_timeout(600)
@@ -1207,9 +1214,10 @@ def discover_modules(page, base_url=""):
         prefixes = set()
         for sec in sections:
             name = _clean_menu_label(sec["name"])
-            if not name or _is_generic_menu(name):
+            if not name:
                 continue
             links = sec.get("links") or []
+            url = ""
             if links:
                 url = links[0]["href"]
                 for ln in links:
@@ -1218,29 +1226,25 @@ def discover_modules(page, base_url=""):
                             _norm_path_segment(segs[0]) not in _SKIP_URL_SEGMENTS:
                         url = ln["href"]
                         break
-                if not _same_host(url, base_url or url):
-                    continue
-                prefix = _norm_path_segment(_path_segments(url)[:1])
-                if not prefix or prefix in _SKIP_URL_SEGMENTS or \
-                        prefix in prefixes:
-                    continue
-                prefixes.add(prefix)
-                out.append({"name": name,
-                            "url": _strip_fragment(url.split("?")[0])})
             else:
-                href = (sec.get("href") or "").strip()
-                if not href or not _same_host(href, base_url or href):
-                    continue
-                segs = _path_segments(href)
-                if not segs or _looks_like_action_url(href):
-                    continue
-                prefix = _norm_path_segment(segs[0])
-                if not prefix or prefix in _SKIP_URL_SEGMENTS or \
-                        prefix in prefixes:
-                    continue
-                prefixes.add(prefix)
-                out.append({"name": name,
-                            "url": _strip_fragment(href.split("?")[0])})
+                url = (sec.get("href") or "").strip()
+            url = _strip_fragment((url or "").split("?")[0])
+            if not url or not _same_host(url, base_url or url):
+                continue
+            segs = _path_segments(url)
+            if not segs or _looks_like_action_url(url):
+                continue
+            prefix = _norm_path_segment(segs[0])
+            if not prefix or prefix in _SKIP_URL_SEGMENTS or \
+                    prefix in prefixes:
+                continue
+            prefixes.add(prefix)
+            out.append({
+                "name": name,
+                "url": url,
+                "links": [{"label": ln.get("label", ""), "href": ln.get("href", "")}
+                          for ln in links if (ln.get("href") or "").strip()],
+            })
         if out:
             return out
 
@@ -1259,8 +1263,7 @@ def discover_modules(page, base_url=""):
         if not prefix or prefix in _SKIP_URL_SEGMENTS:
             continue
         if _GENERIC_MENU_WORDS and any(
-                prefix == _norm_path_segment(w) or prefix in _norm(w)
-                for w in _GENERIC_MENU_WORDS):
+                prefix == _norm_path_segment(w) for w in _GENERIC_MENU_WORDS):
             continue
         url = href
         if prefix not in by_prefix:
@@ -1271,7 +1274,7 @@ def discover_modules(page, base_url=""):
     out = []
     for prefix, info in by_prefix.items():
         name = info["name"] or _url_slug_to_label(info["url"]) or prefix.title()
-        out.append({"name": name.strip(), "url": info["url"]})
+        out.append({"name": name.strip(), "url": info["url"], "links": []})
 
     if not has_hrefs:
         # Last-resort: label-only discovery
@@ -1286,37 +1289,65 @@ def discover_modules(page, base_url=""):
             if _looks_like_crud_button(lbl):
                 continue
             seen.add(key)
-            out.append({"name": lbl, "url": ""})
+            out.append({"name": lbl, "url": "", "links": []})
     return out
 
 
-def discover_functionalities(page, module_url, module_label=""):
-    """Discover the functionalities of a module from the navigation and the
-    module's own page.
+def discover_functionalities(page, module_url, module_label="", module_links=None):
+    """Discover the functionalities of a module — generically, so it works on
+    any application: nothing is hardcoded, everything comes from the scan.
 
-    Only links under the module's URL prefix (same host + matching first
-    path segment, e.g. everything under /crm) count, so the dashboard and
-    other modules are ignored. Returns a list of dicts:
-        [{"name": str, "url": str}]
+    Three complementary sources feed the list:
+      1. module_links: the module's own menu children harvested from the
+         sidebar tree. They are always listed even when their URL lives
+         outside the module's path prefix.
+      2. navigation links under the module's URL prefix (catches sub-pages
+         that do not appear in the sidebar).
+      3. every anchor visible in the module home page (catches card /
+         dashboard links that navigate elsewhere).
+
+    Returns a list of dicts [{"name": str, "url": str}]. The module's own
+    home URL is never a functionality (it is scanned as the module page).
     """
     _expand_accordion_menus(page)
     page.wait_for_timeout(600)
     candidates = []
+    home_url = _strip_fragment((module_url or "").split("?")[0])
 
     def collect(href, label="", origin="page"):
         href = (href or "").strip()
-        if not href or not _same_host(href, module_url or href):
+        clean = _strip_fragment(href.split("?")[0])
+        if not href or not clean or clean == home_url:
             return
-        if _url_under_module(href, module_url) and not _looks_like_action_url(
-                href, module_url):
-            name = _clean_menu_label(label) or _url_slug_to_label(href) \
-                or href.rsplit("/", 1)[-1]
-            candidates.append((href, name, origin))
+        if not _same_host(href, module_url or href):
+            return
+        if not _url_under_module(href, module_url):
+            return
+        if _looks_like_action_url(href, module_url):
+            return
+        name = _clean_menu_label(label) or _url_slug_to_label(href) \
+            or href.rsplit("/", 1)[-1]
+        candidates.append((clean, name, origin))
 
+    # 1. The module's own sidebar children (structure — regardless of prefix).
+    for ln in (module_links or []):
+        href = (ln.get("href") or "").strip()
+        clean = _strip_fragment(href.split("?")[0])
+        if not href or not clean or clean == home_url:
+            continue
+        if not _same_host(href, module_url or href):
+            continue
+        if _looks_like_action_url(clean, module_url):
+            continue
+        name = _clean_menu_label(ln.get("label") or "") \
+            or _url_slug_to_label(clean) or clean.rsplit("/", 1)[-1]
+        candidates.append((clean, name, "module"))
+
+    # 2. Navigation links under the module's URL prefix.
     for link in _nav_links(page):
         collect(link["href"], link["label"], "nav")
 
-    # Also scan ALL visible anchors on the current page (catches links not
+    # 3. Also scan ALL visible anchors on the current page (catches links not
     # present in the persistent sidebar, e.g. cards leading to subpages).
     try:
         page.evaluate("() => { window.__scanAllHrefs = Array.from("
@@ -1326,12 +1357,13 @@ def discover_functionalities(page, module_url, module_label=""):
     except Exception:
         pass
 
+    _ORIGIN_RANK = {"module": 3, "nav": 2, "page": 1}
+
     def _quality(name, origin):
-        # Prefer a navigation menu label over an in-page slug, then a label
-        # with real words, then the longest one ("Ventes" beats the English
-        # slug "sell transactions").
+        # Prefer a menu-built label (module structure, then sidebar) over an
+        # in-page slug, then a label with real words, then the longest one.
         name = (name or "").strip()
-        return (origin == "nav", " " in name, len(name))
+        return (_ORIGIN_RANK.get(origin, 0), " " in name, len(name))
 
     # One functionality per URL: when the same page is found through several
     # links (sidebar + in-page cards), keep the richest label ("Tous les
@@ -1553,7 +1585,12 @@ def _scan_module_using_session(page, project, module, module_url="",
                     "path": "", "steps": home_steps})
 
     try:
-        fns = discover_functionalities(page, module_url, module_name)
+        module_links = module.get("links") if isinstance(module, dict) else None
+        if module_links:
+            fns = discover_functionalities(page, module_url, module_name,
+                                           module_links=module_links)
+        else:
+            fns = discover_functionalities(page, module_url, module_name)
     except Exception as e:
         _log("scan module '%s': découverte impossible (%s)" %
              (module_name, e))
