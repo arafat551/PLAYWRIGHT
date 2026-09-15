@@ -1,4 +1,4 @@
-"""Playwright browser management: launch, login, 2FA, HTTP + JS monitoring.
+"""Playwright browser management: launch, login, HTTP + JS monitoring.
 
 This module owns the browser lifecycle. Other SDET modules (explorer,
 runner) receive an open BrowserSession and drive it.
@@ -11,7 +11,6 @@ from ..config import env, setting_bool, setting_int
 LOGIN_SELECTORS = {
     "email": 'input[type="email"], input[name*="email" i], input[autocomplete="username"], input[name="username"], input[name="login"], input[placeholder*="mail" i]',
     "password": 'input[type="password"]',
-    "otp": 'input[name*="otp" i], input[name*="code" i], input[type="number"], input[placeholder*="code" i], input[inputmode="numeric"]',
     "submit": 'button[type="submit"], input[type="submit"], button:has-text("Se connecter"), button:has-text("Connexion"), button:has-text("Login"), button:has-text("Sign in"), button:has-text("Continuer")',
 }
 

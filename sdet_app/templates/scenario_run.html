@@ -104,7 +104,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-{% if test.status in ('running','exploring','waiting_otp','cancel_requested') %}
+{% if test.status in ('running','exploring','cancel_requested') %}
 <script>
 setInterval(()=>{ location.reload(); }, 3000);
 </script>

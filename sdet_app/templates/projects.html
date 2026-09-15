@@ -28,7 +28,7 @@
             <tr>
                 <td class="text-truncate">{{ p.name }}</td>
                 <td class="text-truncate"><a href="{{ p.url }}" target="_blank">{{ p.url }}</a></td>
-                <td>{{ {"none":"Aucune","simple":"Simple","2fa":"2FA"}.get(p.auth_type, p.auth_type) }}</td>
+                <td>{{ {"none":"Aucune","simple":"Simple"}.get(p.auth_type, p.auth_type) }}</td>
                 <td>{{ p.environment }}</td>
                 <td>{{ (p.last_test_date or '-')[:16] }}</td>
                 <td>

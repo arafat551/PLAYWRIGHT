@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS test_runs (
     skipped INTEGER DEFAULT 0,
     report_json TEXT DEFAULT '{}',
     plan_json TEXT DEFAULT '[]',
-    otp_code TEXT DEFAULT '',
     launched_by TEXT DEFAULT '',
     owner_id INTEGER DEFAULT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -217,6 +216,8 @@ def init_db(path=None):
     tcols = [r[1] for r in db.execute("PRAGMA table_info(test_runs)").fetchall()]
     if "owner_id" not in tcols:
         db.execute("ALTER TABLE test_runs ADD COLUMN owner_id INTEGER DEFAULT NULL")
+    if "otp_code" in tcols:
+        db.execute("ALTER TABLE test_runs DROP COLUMN otp_code")
 
     # Bootstrap admin if no user exists
     cur = db.execute("SELECT id FROM users LIMIT 1")
@@ -969,22 +970,8 @@ def run_progress(tid):
 def request_cancel(tid):
     db = get_connection()
     db.execute(
-        "UPDATE test_runs SET status='cancel_requested' WHERE id=? AND status IN ('running','waiting_otp','exploring')",
+        "UPDATE test_runs SET status='cancel_requested' WHERE id=? AND status IN ('running','exploring')",
         (tid,))
-    db.commit()
-    db.close()
-
-
-def submit_otp(tid, code):
-    db = get_connection()
-    db.execute("UPDATE test_runs SET status='otp_submitted', otp_code=? WHERE id=?", (code, tid))
-    db.commit()
-    db.close()
-
-
-def set_waiting_otp(tid):
-    db = get_connection()
-    db.execute("UPDATE test_runs SET status='waiting_otp' WHERE id=?", (tid,))
     db.commit()
     db.close()
 

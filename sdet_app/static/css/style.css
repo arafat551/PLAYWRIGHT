@@ -621,7 +621,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .badge-exploring { background: var(--violet-050); color: #6d28d9; }
 .badge-explored { background: var(--success-050); color: #047857; }
 .badge-cancel_requested { background: var(--warning-050); color: var(--warning-600); }
-.badge-waiting_otp { background: var(--warning-050); color: var(--warning-600); }
 .badge-failed { background: var(--danger-050); color: var(--danger-600); }
 .badge-cancelled { background: #f1f5f9; color: #475569; }
 .badge-error { background: var(--danger-050); color: var(--danger-600); }
@@ -657,7 +656,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .status-dot.exploring { background: var(--violet); animation: pulse 1.4s infinite; }
 .status-dot.explored { background: #10b981; }
 .status-dot.cancel_requested { background: var(--warning); animation: pulse 1.4s infinite; }
-.status-dot.waiting_otp { background: var(--warning); animation: pulse 1.4s infinite; }
 .status-dot.cancelled { background: #9ca3af; }
 
 @keyframes pulse {
@@ -756,20 +754,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .progress-pass { background: var(--success); }
 .progress-warn { background: var(--warning); }
 .progress-fail { background: var(--danger); }
-
-/* ==========================================================================
-   OTP
-   ========================================================================== */
-
-.card-otp {
-  border: 1px solid #fcd34d;
-  background: linear-gradient(180deg, #fffbeb, #fff7e0);
-  max-width: 520px;
-}
-.card-otp h2 { color: var(--warning-600); }
-.card-otp form { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; margin-top: 0.8rem; }
-.card-otp form input { max-width: 200px; }
-.card-otp form .btn-primary { margin-top: 0; }
 
 /* ==========================================================================
    Results

@@ -64,32 +64,6 @@ def run_exploration(tid, pid):
                       security.decrypt_value(project.get("password_enc", "")))
             browser.settle(page)
 
-        # OTP wait (section 27) — browser stays open
-        if project.get("auth_type") == "2fa":
-            otp = page.query_selector(browser.LOGIN_SELECTORS["otp"])
-            if otp:
-                database.set_waiting_otp(tid)
-                while True:
-                    time.sleep(2)
-                    status = database.test_status(tid)
-                    if status == "otp_submitted":
-                        try:
-                            row_otp = database.get_test_run(tid).otp_code or ""
-                            otp = page.query_selector(browser.LOGIN_SELECTORS["otp"])
-                            if otp:
-                                otp.fill(row_otp)
-                            sub = page.query_selector(browser.LOGIN_SELECTORS["submit"])
-                            if sub:
-                                sub.click()
-                            browser.settle(page)
-                        except Exception:
-                            pass
-                        break
-                    if status == "cancel_requested":
-                        browser.close()
-                        database.finalize_test_run(tid, "cancelled", _zero(), [])
-                        return
-
         def progress(n):
             database.set_running_total(tid, n)
 
@@ -160,31 +134,6 @@ def run_test(tid, pid, plan):
             try_login(page, project.get("email", ""),
                       security.decrypt_value(project.get("password_enc", "")))
             browser.settle(page)
-
-        if project.get("auth_type") == "2fa":
-            otp = page.query_selector(browser.LOGIN_SELECTORS["otp"])
-            if otp:
-                database.set_waiting_otp(tid)
-                while True:
-                    time.sleep(2)
-                    status = database.test_status(tid)
-                    if status == "otp_submitted":
-                        try:
-                            row_otp = database.get_test_run(tid).otp_code or ""
-                            otp = page.query_selector(browser.LOGIN_SELECTORS["otp"])
-                            if otp:
-                                otp.fill(row_otp)
-                            sub = page.query_selector(browser.LOGIN_SELECTORS["submit"])
-                            if sub:
-                                sub.click()
-                            browser.settle(page)
-                        except Exception:
-                            pass
-                        break
-                    if status == "cancel_requested":
-                        session.close()
-                        database.finalize_test_run(tid, "cancelled", _zero(), [])
-                        return
 
         counters, results = _run_impl(session, project, tid, plan,
                                       is_cancelled=lambda: _is_cancelled(tid))

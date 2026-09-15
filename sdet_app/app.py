@@ -1080,7 +1080,7 @@ def settings_send_test_email():
 
 
 # ---------------------------------------------------------------------------
-# Test view / OTP / cancel / results
+# Test view / cancel / results
 # ---------------------------------------------------------------------------
 
 @app.route("/tests/<int:tid>")
@@ -1093,7 +1093,7 @@ def test_view(tid):
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
     progress = None
-    if test.status in ("running", "waiting_otp", "otp_submitted"):
+    if test.status == "running":
         progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
@@ -1102,18 +1102,6 @@ def test_view(tid):
     else:
         template = "test_run.html"
     return render_template(template, test=test, results=results, progress=progress)
-
-
-@app.route("/tests/<int:tid>/otp", methods=["POST"])
-@login_required
-def test_otp(tid):
-    code = request.form.get("otp_code", "").strip()
-    if not code:
-        flash("Veuillez saisir le code OTP", "error")
-        return redirect(url_for("test_view", tid=tid))
-    database.submit_otp(tid, code)
-    flash("Code OTP envoyé", "success")
-    return redirect(url_for("test_view", tid=tid))
 
 
 @app.route("/tests/<int:tid>/cancel", methods=["POST"])
@@ -1479,7 +1467,7 @@ def _validate_project(data, editing=False):
         errors.append("Le nom du projet est obligatoire")
     if not data["url"] or not data["url"].startswith("http"):
         errors.append("Une URL valide (http/https) est obligatoire")
-    if data["auth_type"] not in ("none", "simple", "2fa"):
+    if data["auth_type"] not in ("none", "simple"):
         errors.append("Type d'authentification invalide")
     if data["environment"] not in ("DEV", "TEST", "STAGING", "PRODUCTION"):
         errors.append("Environnement invalide")
