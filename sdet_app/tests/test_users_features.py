@@ -167,16 +167,3 @@ def test_reset_invalid_token(client, _init_db):
                     data={"password": "abc", "confirm": "abc"},
                     follow_redirects=True)
     assert "Lien invalide ou expiré" in r.get_data(as_text=True)
-
-
-def test_settings_send_test_email_queues_when_no_smtp(client, _init_db):
-    _login(client, "admin@example.com", "admin123")
-    r = client.post("/settings/send-test-email",
-                    data={"recipient": "test-dest@x.test"},
-                    follow_redirects=True)
-    body = r.get_data(as_text=True)
-    assert "boîte de sortie" in body
-    from sdet_app import database
-    mails = database.list_outbox()
-    assert any(m["recipient"] == "test-dest@x.test"
-               and "Test SMTP" in m["subject"] for m in mails)

@@ -13,6 +13,7 @@ the form to inspect its fields.
 """
 import datetime
 import re
+import threading
 import time
 
 from .. import security
@@ -24,6 +25,40 @@ from .forms import _field_type, _label_for_field, _required, _tag, find_form
 def _log(msg):
     ts = time.strftime("%H:%M:%S")
     print(f"[GENERATOR {ts}] {msg}", flush=True)
+
+
+class ScanCancelled(Exception):
+    """Scan stopped by the user."""
+
+
+class ScanControl:
+    """Thread-safe pause/stop control shared between the scan thread and the
+    web layer.  The scan calls ``check()`` at module & functionality boundaries.
+    """
+    def __init__(self):
+        self._cancelled = threading.Event()
+        self._paused = threading.Event()
+
+    def cancel(self):
+        self._cancelled.set()
+
+    def set_paused(self, v):
+        if v:
+            self._paused.set()
+        else:
+            self._paused.clear()
+
+    @property
+    def paused(self):
+        return self._paused.is_set()
+
+    def check(self):
+        if self._cancelled.is_set():
+            raise ScanCancelled()
+        while self._paused.is_set():
+            if self._cancelled.is_set():
+                raise ScanCancelled()
+            time.sleep(0.25)
 
 _CREATE_WORDS = ("ajouter", "ajoutez", "nouveau", "nouvelle", "nouvel", "créer",
                  "creer", "création", "creation", "add", "new", "create")
@@ -1428,13 +1463,16 @@ def _page_is_blank(page):
         return False
 
 
-def _generate_for_functionality(page, module_name, fname, furl, suffix):
+def _generate_for_functionality(page, module_name, fname, furl, suffix,
+                                control=None):
     """Generate steps for one functionality, preferring direct URL
     navigation (reliable) over menu-based auto-discovery.  When navigation
     itself fails (or the screen renders blank), the functionality is still
     registered with a simple navigation scenario so a read-only page is never
     forced into a CRUD workout. The caller is responsible for moving back to
     the module home after a blank page."""
+    if control is not None:
+        control.check()
     if furl:
         if not _goto_url(page, furl):
             _log("scan: navigation impossible vers '%s' (%s)" % (fname, furl))
@@ -1481,11 +1519,16 @@ def _safe_generate_from_page(page, functionality, suffix):
         return _fallback_steps(functionality), None
 
 
-def _safe_generate_functionality(page, module_name, fname, furl, suffix):
-    """Same resilience wrapper for ``_generate_for_functionality``."""
+def _safe_generate_functionality(page, module_name, fname, furl, suffix,
+                                 control=None):
     try:
+        if control is not None:
+            return _generate_for_functionality(page, module_name, fname, furl,
+                                               suffix, control=control)
         return _generate_for_functionality(page, module_name, fname, furl,
                                            suffix)
+    except ScanCancelled:
+        raise
     except Exception as e:
         _log("scan: fonctionnalité '%s' générée en secours (%s)" % (fname, e))
         return _fallback_steps(fname)
@@ -1519,7 +1562,7 @@ def _slugify(seg):
 
 
 def _scan_module_using_session(page, project, module, module_url="",
-                               nav_path=None):
+                               nav_path=None, control=None):
     """Scan ONE module in an already-open session (single browser pass).
 
     Before anything is scanned, the browser is pointed DIRECTLY at the
@@ -1536,6 +1579,8 @@ def _scan_module_using_session(page, project, module, module_url="",
       results = [{"functionality": str, "url": str, "path": str, "steps": [str]}]
       error   = None or a friendly French message (in which case results=[]).
     """
+    if control is not None:
+        control.check()
     module_name = module["name"] if isinstance(module, dict) else module
     if isinstance(module, dict):
         module_url = module.get("url") or module_url
@@ -1602,10 +1647,13 @@ def _scan_module_using_session(page, project, module, module_url="",
 
     total = len(fns)
     for i, f in enumerate(fns):
+        if control is not None:
+            control.check()
         _log("scan '%s' -> fonctionnalité %d/%d : '%s' (%s)" %
              (module_name, i + 1, total, f["name"], f["url"]))
         steps = _safe_generate_functionality(page, module_name, f["name"],
-                                             f["url"], suffix)
+                                             f["url"], suffix,
+                                             control=control)
         # A screen that rendered blank must never trap the scan: go back to
         # the project's home page (the URL configured on the project) and
         # carry on with the next functionality.
@@ -1621,7 +1669,7 @@ def _scan_module_using_session(page, project, module, module_url="",
     return results, None
 
 
-def scan_module(project, module, nav_path=None):
+def scan_module(project, module, nav_path=None, control=None):
     """Open the module's screen (direct URL, verified) and auto-discover its
     functionalities with their CRUD scenarios, all in one browser pass.
 
@@ -1640,7 +1688,7 @@ def scan_module(project, module, nav_path=None):
                     "indisponible.")
     try:
         return _scan_module_using_session(page, project, module,
-                                          nav_path=nav_path)
+                                          nav_path=nav_path, control=control)
     finally:
         try:
             session.close()
@@ -1652,7 +1700,7 @@ def scan_module(project, module, nav_path=None):
             pass
 
 
-def scan_whole_app(project, on_module_progress=None):
+def scan_whole_app(project, on_module_progress=None, control=None):
     """Scan the whole application without any user-provided module.
 
     Opens one browser session, reads the top-level navigation to detect the
@@ -1663,11 +1711,16 @@ def scan_whole_app(project, on_module_progress=None):
     on_module_progress(module_name, func_count, total_func_count) is called
     after each module for progress reporting.
 
+    control: optional ScanControl. When the user stops the scan, ScanCancelled
+    is raised at the module boundary; no data is written for that run.
+
     Returns (modules, error):
       modules = [{"module": str, "url": str,
                   "functionalities": [{"functionality", "url", "path", "steps"}]}]
       error   = None or a friendly French message.
     """
+    if control is not None:
+        control.check()
     _log("scan_whole_app: opening session")
     from .browser import open_session
     session, stop = open_session()
@@ -1682,6 +1735,8 @@ def scan_whole_app(project, on_module_progress=None):
             try_login(page, project.get("email", ""),
                       security.decrypt_value(project.get("password_enc", "")))
             browser.settle(page)
+        if control is not None:
+            control.check()
         modules = discover_modules(page, project.get("url", ""))
         _log("scan_whole_app: %d module(s) détecté(s)" % len(modules))
         for m in modules:
@@ -1692,11 +1747,14 @@ def scan_whole_app(project, on_module_progress=None):
         total = 0
         out = []
         for idx, m in enumerate(modules):
+            if control is not None:
+                control.check()
             _log("scan_whole_app: module %d/%d : '%s'" % (idx + 1,
                                                           len(modules),
                                                           m["name"]))
             fns, err = _scan_module_using_session(page, project, m,
-                                                  nav_path=[])
+                                                  nav_path=[],
+                                                  control=control)
             if err:
                 _log("scan_whole_app: module '%s' ignoré : %s" %
                      (m["name"], err))

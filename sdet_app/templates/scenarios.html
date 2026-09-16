@@ -12,10 +12,9 @@
         <div class="page-subtitle">Modules → Fonctionnalités → Étapes sur <strong>{{ project.name }}</strong></div>
     </div>
     <div class="run-actions">
-        <button type="button" class="btn-primary" id="scanAllBtn"
-                onclick="startScanAll()">Scanner tout le logiciel</button>
         <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Retour au projet</a>
     </div>
+    <div class="scan-badges" id="scanBadges"></div>
 </div>
 
 <div class="info-banner">
@@ -57,8 +56,10 @@
         — le tout en un seul passage, sans re-scan.
     </p>
     <p class="text-muted">
-        Ou utilisez directement « Scanner tout le logiciel » en haut à droite pour que le système
-        détecte lui-même les modules (CRM, IMS…) et génère tout.
+        <strong>Astuce :</strong> chaque fonctionnalité peut aussi être écrite à la main.
+        Cliquez sur <strong>+</strong> pour ajouter une étape (Naviguer, Cliquer, Remplir,
+        Vérifier…). Cochez les fonctionnalités à tester puis lancez « Lancer les tests »
+        pour exécuter les scénarios sur l'application.
     </p>
 </div>
 </div>
@@ -80,10 +81,26 @@
             {% if m.description %}<span class="text-muted text-small">{{ m.description }}</span>{% endif %}
             {% if m.url %}<span class="module-url" title="URL du module — le scan commence ici">{{ m.url }}</span>{% endif %}
             <span class="selected-count text-small">0/<span class="total">{{ m.functionalities|length }}</span></span>
+            <span class="module-scan-state" data-module="{{ m.id }}" hidden>
+                <span class="scan-chip" data-module="{{ m.id }}">
+                    <span class="scan-dot" data-module="{{ m.id }}"></span>
+                    <span class="scan-chip-label" data-module="{{ m.id }}">—</span>
+                </span>
+                <button type="button" class="icon-btn ms-pause" data-module="{{ m.id }}"
+                        title="Mettre en pause le scan du module"
+                        onclick="moduleControl(event, '{{ m.id }}', 'pause')" hidden>⏸</button>
+                <button type="button" class="icon-btn ms-resume" data-module="{{ m.id }}"
+                        title="Reprendre le scan du module"
+                        onclick="moduleControl(event, '{{ m.id }}', 'resume')" hidden>▶</button>
+                <button type="button" class="icon-btn ms-stop" data-module="{{ m.id }}"
+                        title="Arrêter le scan du module"
+                        onclick="moduleControl(event, '{{ m.id }}', 'stop')" hidden>⏹</button>
+            </span>
             <span class="module-actions">
                 <button type="button" class="icon-btn icon-generate"
                         title="Scanner ce module (détecter ses fonctionnalités + scénarios)"
-                        onclick="startModuleScan(this, '{{ url_for('scenario_module_generate', pid=project.id, mid=m.id) }}', '{{ m.name }}')">
+                        data-toggle="true" data-module="{{ m.id }}"
+                        onclick="startModuleScan(this, '{{ url_for('scenario_module_generate', pid=project.id, mid=m.id) }}', '{{ m.name }}', '{{ m.id }}')">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </button>
                 <details class="fn-details module-details">
@@ -248,7 +265,11 @@ function updateCount(){
         chk.checked = boxes.length > 0 && checked === boxes.length;
         chk.indeterminate = checked > 0 && checked < boxes.length;
         const sc = group.querySelector('.selected-count');
-        if(sc) sc.firstChild.textContent = checked + '/';
+        if(sc){
+            if(sc.dataset.base === undefined) sc.dataset.base = sc.firstChild.textContent;
+            sc.firstChild.textContent = checked + sc.dataset.base;
+            sc.hidden = checked === 0 || boxes.length === 0;
+        }
     });
 }
 
@@ -384,96 +405,467 @@ function addFunctionality(ev, url, inputId, urlInputId){
         .then(() => location.reload());
 }
 
-function showScanFail(btn, label, msg){
+// --- Scan tout le logiciel + scan par module : console & contrôle ---------
+// Les scans tournent en tâche de fond: si la page est rechargée le JS se
+// reconnecte au scan en cours (Pause/Reprendre/Arrêter) et recharge la page
+// automatiquement quand il se termine — d'où l'affichage des nouvelles données.
+
+var APP_SCAN = null;         // scan de l'application en cours
+var MODULE_SCANS = {};       // mid -> état du scan du module en cours
+var MODULE_URLS = {};
+{% for m in tree %}
+MODULE_URLS['{{ m.id }}'] = "{{ url_for('scenario_module_generate', pid=project.id, mid=m.id) }}";
+{% endfor %}
+
+var SCAN_ARROW_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+function $(id){ return document.getElementById(id); }
+
+function mBase(url){
+    return String(url || '').replace(/\/+$/, '');
+}
+
+function mAction(base, act){
+    return base + '/' + act;
+}
+
+function fmtTime(sec, withSec){
+    sec = Math.max(0, Math.round(sec || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if(m >= 60){
+        return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+    }
+    return withSec ? m + ' min ' + String(s).padStart(2, '0') + ' s' : m + ' min';
+}
+
+function scanHandle(d){
+    if(d.status === 'stopped') return 'stopped';
+    if(d.status === 'done') return 'done';
+    if(d.status === 'error') return 'err';
+    if(d.status === 'paused') return 'paused';
+    if(d.status === 'running') return 'running';
+    return 'idle';
+}
+
+// Polling « infini » (aucun plafond client) : le scan peut durer 20 minutes,
+// on ne l'abandonne jamais tant que le serveur répond.
+function pollOnce(statusUrl, opts){
+    fetch(statusUrl)
+        .then(r => r.json())
+        .then(d => {
+            const h = scanHandle(d);
+            opts.dispatch(d);
+            if(h === 'done' || h === 'error' || h === 'stopped'){
+                opts.settle(d, h);
+            } else {
+                opts.timer = setTimeout(function(){ pollOnce(statusUrl, opts); }, GENERATE_POLL_MS);
+            }
+        })
+        .catch(function(){
+            if(opts.onNetError) opts.onNetError();
+            opts.timer = setTimeout(function(){ pollOnce(statusUrl, opts); }, 2000);
+        });
+}
+
+// ---- Console flottante (scan application) ----
+function renderConsole(){
+    const d = APP_SCAN;
+    const dot = $('scanDot');
+    const ctl = $('scanInlineCtl');
+    if(!dot || !ctl) return;
+    dot.classList.remove('scan-dot-idle','scan-dot-running','scan-dot-paused','scan-dot-stopped','scan-dot-err','scan-dot-done');
+    $('scanPauseBtn').hidden = true;
+    $('scanResumeBtn').hidden = true;
+    $('scanStopBtn').hidden = true;
+    $('scanMessage').textContent = '';
+    if(!d){
+        ctl.hidden = true;
+        return;
+    }
+    ctl.hidden = false;
+    const settled = !!(d.done || d.err || d.stopped);
+    const baseLabel = d.err ? 'Échec du scan'
+        : d.stopped ? 'Scan arrêté'
+        : d.done ? 'Scan terminé'
+        : d.status === 'paused' ? 'Scan en pause'
+        : 'Scan en cours…';
+    dot.classList.add('scan-dot-' + (d.err ? 'err' : d.stopped ? 'stopped' : d.done ? 'done' : d.status === 'paused' ? 'paused' : 'running'));
+    $('scanLabel').textContent = baseLabel + (d.scope ? ' — ' + d.scope : '');
+    $('scanMessage').textContent = settled ? (d.message || '') : '';
+    $('scanTimer').textContent = d.timerText || '—';
+    $('scanPauseBtn').hidden = !(d.status === 'running' && !settled);
+    $('scanResumeBtn').hidden = !(d.status === 'paused' && !settled);
+    $('scanStopBtn').hidden = !((d.status === 'running' || d.status === 'paused') && !settled);
+}
+
+function setConsoleExpanded(open){ renderConsole(); }
+
+function setChip(mid, cls, text){
+    const chip = document.querySelector('.scan-chip[data-module="' + mid + '"]');
+    if(!chip) return;
+    const dot = chip.querySelector('.scan-dot');
+    const label = chip.querySelector('.scan-chip-label');
+    dot.classList.remove('scan-dot-idle','scan-dot-running','scan-dot-paused','scan-dot-stopped','scan-dot-err','scan-dot-done');
+    dot.classList.add('scan-dot-' + cls);
+    label.textContent = text;
+}
+
+function setModuleControls(mid, st){
+    const wrap = document.querySelector('.module-scan-state[data-module="' + mid + '"]');
+    if(!wrap) return;
+    const active = (st === 'running' || st === 'paused');
+    wrap.hidden = !active;
+    wrap.querySelector('.ms-pause').hidden = !(st === 'running');
+    wrap.querySelector('.ms-resume').hidden = !(st === 'paused');
+    wrap.querySelector('.ms-stop').hidden = !active;
+}
+
+function moduleBtn(mid){
+    return document.querySelector('.icon-generate[data-toggle="true"][data-module="' + mid + '"]');
+}
+
+function anyScanRunning(){
+    if(APP_SCAN && (APP_SCAN.status === 'running' || APP_SCAN.status === 'paused')) return true;
+    for(const mid in MODULE_SCANS){
+        const st = MODULE_SCANS[mid];
+        if(st && (st.status === 'running' || st.status === 'paused')) return true;
+    }
+    return false;
+}
+
+// ---- Scan application ----
+function startScanAll(){
+    if(anyScanRunning()){
+        alert('Un scan est déjà en cours.');
+        return;
+    }
+    if(!confirm("Scanner tout le logiciel ? Le système va détecter automatiquement les modules (CRM, IMS…), leurs fonctionnalités (et sous-fonctionnalités) et écrire les scénarios — le tout en un seul passage. Tous les modules existants seront remplacés.")) return;
+
+    const base = mBase("{{ url_for('scenario_scan_all', pid=project.id) }}");
+    const st = {
+        base: base, statusUrl: base + '/status',
+        status: 'running', done: false, err: false, stopped: false,
+        scope: 'Application', progress: '—', message: '',
+        timerText: '0 min 00 s', elapsedBase: 0
+    };
+    APP_SCAN = st;
+    setConsoleExpanded(false);
+    updateScanAllBtn();
+    beginAppElapsed();
+    pollOnce(st.statusUrl, {
+        dispatch: appDispatch,
+        settle: appSettle,
+        onNetError: appNetError,
+        timer: null
+    });
+}
+
+function appDispatch(d){
+    const st = APP_SCAN;
+    if(!st) return;
+    st.status = d.status === 'paused' ? 'paused' : 'running';
+    if(d.elapsed !== undefined) st.elapsedBase = d.elapsed;
+    st.timerText = fmtTime(d.elapsed !== undefined ? d.elapsed : st.elapsedBase, true);
+    renderConsole();
+}
+
+function appSettle(d, h){
+    if(!APP_SCAN) return;
+    stopAppElapsed();
+    const st = APP_SCAN;
+    st.message = d.message || '';
+    if(h === 'done'){
+        st.done = true;
+        st.timerText = fmtTime(d.elapsed, true);
+        renderConsole();
+        updateScanAllBtn();
+        setTimeout(function(){ location.reload(); }, 1200);
+    } else if(h === 'err'){
+        st.err = true;
+        st.timerText = st.timerText || '—';
+        renderConsole();
+        setConsoleExpanded(true);
+        updateScanAllBtn();
+    } else if(h === 'stopped'){
+        st.stopped = true;
+        renderConsole();
+        updateScanAllBtn();
+    }
+}
+
+function appNetError(){
+    if(!APP_SCAN) return;
+    stopAppElapsed();
+    APP_SCAN.err = true;
+    APP_SCAN.message = 'Le serveur ne répond plus pendant le scan. Rechargez la page pour suivre sa progression.';
+    renderConsole();
+    setConsoleExpanded(true);
+    updateScanAllBtn();
+}
+
+var _appTimer = null;
+function beginAppElapsed(){
+    stopAppElapsed();
+    _appTimer = setInterval(function(){
+        const st = APP_SCAN;
+        if(st && st.status === 'running'){
+            st.elapsedBase += 1;
+            st.timerText = fmtTime(st.elapsedBase, true);
+            renderConsole();
+        }
+    }, 1000);
+}
+function stopAppElapsed(){
+    if(_appTimer){ clearInterval(_appTimer); _appTimer = null; }
+}
+
+function updateScanAllBtn(){
+    const btn = $('scanAllBtn');
+    if(!btn) return;
+    const running = APP_SCAN && (APP_SCAN.status === 'running' || APP_SCAN.status === 'paused');
+    const ctl = $('scanInlineCtl');
+    btn.disabled = !!(running || (APP_SCAN && APP_SCAN.done));
+    if(running){
+        btn.classList.add('generating');
+        btn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Détection en cours…';
+        if(ctl) ctl.hidden = false;
+    } else if(APP_SCAN && (APP_SCAN.done || APP_SCAN.err || APP_SCAN.stopped)) {
+        btn.classList.remove('generating');
+        btn.innerHTML = 'Scanner tout le logiciel';
+        if(ctl) ctl.hidden = false;
+        setTimeout(function(){ APP_SCAN = null; renderConsole(); updateScanAllBtn(); }, 4000);
+    } else {
+        btn.classList.remove('generating');
+        btn.innerHTML = 'Scanner tout le logiciel';
+        if(ctl) ctl.hidden = true;
+    }
+}
+
+function scanControl(act){
+    if(!APP_SCAN) return;
+    if(act === 'stop' && !confirm('Arrêter le scan ? Les données déjà inventoriées sont conservées ; les résultats du scan en cours ne sont pas enregistrés.')) return;
+    fetch(mAction(APP_SCAN.base, act), { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if(act === 'pause' && d.status === 'paused'){
+                APP_SCAN.status = 'paused';
+            } else if(act === 'resume' && d.status === 'running'){
+                APP_SCAN.status = 'running';
+            }
+            renderConsole();
+        })
+        .catch(() => alert('Action impossible (erreur réseau).'));
+}
+
+// ---- Scan d'un module ----
+function moduleDispatch(mid, d){
+    const st = MODULE_SCANS[mid];
+    if(!st) return;
+    st.status = d.status === 'paused' ? 'paused' : 'running';
+    if(d.elapsed !== undefined) st.elapsedBase = d.elapsed;
+    st.timerText = fmtTime(d.elapsed !== undefined ? d.elapsed : st.elapsedBase, true);
+    setChip(mid, st.status, st.status === 'paused' ? 'En pause' : fmtTime(st.elapsedBase, true));
+    setModuleControls(mid, st.status);
+}
+
+function moduleSettle(mid, d, h){
+    const st = MODULE_SCANS[mid];
+    const btn = moduleBtn(mid);
     if(btn){
         btn.disabled = false;
         btn.classList.remove('generating');
-        btn.innerHTML = label;
+        btn.innerHTML = SCAN_ARROW_SVG;
+        btn.title = 'Scanner ce module (détecter ses fonctionnalités + scénarios)';
     }
-    alert(msg || 'Erreur pendant le scan.');
-    location.reload();
+    if(h === 'done'){
+        st.done = true;
+        setChip(mid, 'done', 'Mis à jour');
+        setModuleControls(mid, 'done');
+        location.reload();
+    } else if(h === 'err'){
+        st.err = true;
+        setChip(mid, 'err', 'Échec');
+        setModuleControls(mid, 'err');
+        alert(d.message || 'Erreur pendant le scan du module.');
+        location.reload();
+    } else if(h === 'stopped'){
+        st.stopped = true;
+        setChip(mid, 'stopped', 'Arrêté — données conservées');
+        setModuleControls(mid, 'stopped');
+    }
 }
 
-function pollScan(statusUrl, onDone, onFail, timeoutMs){
-    const started = Date.now();
-    const tick = function(){
-        if(Date.now() - started > timeoutMs){
-            onFail('Le scan a expiré. Réessayez.');
-            return;
-        }
-        fetch(statusUrl)
-            .then(r => r.json())
-            .then(d => {
-                if(d.status === 'done'){
-                    onDone(d);
-                } else if(d.status === 'error'){
-                    onFail(d.message);
-                } else {
-                    setTimeout(tick, GENERATE_POLL_MS);
-                }
-            })
-            .catch(() => setTimeout(tick, 2000));
-    };
-    setTimeout(tick, GENERATE_POLL_MS);
+function moduleNetError(mid, btn){
+    const st = MODULE_SCANS[mid];
+    st.err = true;
+    setChip(mid, 'err', 'Réessayer (recharger).');
+    setModuleControls(mid, 'err');
+    if(btn){
+        btn.disabled = false;
+        btn.classList.remove('generating');
+        btn.innerHTML = SCAN_ARROW_SVG;
+    }
 }
 
-function startModuleScan(btn, url, name){
-    if(!confirm(`Scanner le module « ${name} » ? Le système va parcourir le module pour détecter ses fonctionnalités et écrire leurs scénarios (CRUD si l'écran a un formulaire, vérification d'ouverture sinon). Les fonctionnalités actuelles seront remplacées.`)) return;
+function beginModulePoll(mid){
+    const st = MODULE_SCANS[mid];
+    if(!st) return;
+    st.status = 'running';
+    setChip(mid, 'running', 'Détection…');
+    setModuleControls(mid, 'running');
+    const btn = moduleBtn(mid);
+    if(btn){
+        btn.disabled = true;
+        btn.classList.add('generating');
+        btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+        btn.title = 'Scan du module en cours…';
+    }
+    pollOnce(st.statusUrl, {
+        dispatch: function(d){ moduleDispatch(mid, d); },
+        settle: function(d, h){ moduleSettle(mid, d, h); },
+        onNetError: function(){ moduleNetError(mid, moduleBtn(mid)); },
+        timer: null
+    });
+}
 
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.classList.add('generating');
-    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
-    btn.title = 'Scan du module en cours…';
+function startModuleScan(btn, url, name, mid){
+    if(APP_SCAN && (APP_SCAN.status === 'running' || APP_SCAN.status === 'paused')){
+        alert('Un scan de l\'application est déjà en cours.');
+        return;
+    }
+    const existing = MODULE_SCANS[mid];
+    if(existing && (existing.status === 'running' || existing.status === 'paused')){
+        return;
+    }
+    if(!confirm(`Scanner le module « ${name} » ? Le système va parcourir le module pour détecter ses fonctionnalités et écrire leurs scénarios. Les fonctionnalités actuelles seront remplacées.`)) return;
 
-    const statusUrl = url + '/status';
-    const fail = function(msg){
-        showScanFail(btn, original, msg || 'Erreur pendant le scan du module.');
+    const base = mBase(url);
+    MODULE_SCANS[mid] = {
+        base: base, statusUrl: base + '/status',
+        status: 'running', done: false, err: false, stopped: false,
+        elapsedBase: 0, timerText: '…', _btn: btn
     };
+    beginModulePoll(mid);
 
-    fetch(url, { method: 'POST' })
+    fetch(base, { method: 'POST' })
         .then(r => r.json())
         .then(d => {
-            if(d.status === 'running' || d.status === 'started'){
-                pollScan(statusUrl, () => location.reload(), fail, GENERATE_POLL_MS * 200);
-            } else if(d.status === 'error'){
-                fail(d.message);
+            const h = scanHandle(d);
+            if(h === 'running'){
+                // rien à faire : beginModulePoll a déjà lancé le polling
+            } else if(h === 'error'){
+                moduleSettle(mid, d, 'err');
+            } else if(h === 'stopped'){
+                moduleSettle(mid, d, 'stopped');
             } else {
                 location.reload();
             }
         })
-        .catch(() => fail('Impossible de lancer le scan du module (erreur réseau).'));
+        .catch(() => {
+            const btn2 = moduleBtn(mid);
+            moduleNetError(mid, btn2);
+            alert('Impossible de lancer le scan du module (erreur réseau).');
+        });
 }
 
-function startScanAll(){
-    const btn = document.getElementById('scanAllBtn');
-    if(!btn) return;
-    if(!confirm("Scanner tout le logiciel ? Le système va détecter automatiquement les modules (CRM, IMS…), leurs fonctionnalités (et sous-fonctionnalités) et écrire les scénarios (CRUD si l'écran a un formulaire, vérification d'ouverture sinon) — le tout en un seul passage. Tous les modules existants seront remplacés.")) return;
-
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.classList.add('generating');
-    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Scan en cours…';
-
-    const url = "{{ url_for('scenario_scan_all', pid=project.id) }}";
-    const statusUrl = url + '/status';
-    const fail = function(msg){
-        showScanFail(btn, original, msg || 'Erreur pendant le scan de l\'application.');
-    };
-
-    fetch(url, { method: 'POST' })
+function moduleControl(ev, mid, act){
+    ev.stopPropagation();
+    const st = MODULE_SCANS[mid];
+    if(!st) return;
+    fetch(mAction(st.base, act), { method: 'POST' })
         .then(r => r.json())
         .then(d => {
-            if(d.status === 'running' || d.status === 'started'){
-                pollScan(statusUrl, () => location.reload(), fail, GENERATE_POLL_MS * 250);
-            } else if(d.status === 'error'){
-                fail(d.message);
-            } else {
-                location.reload();
+            if(act === 'pause' && d.status === 'paused'){
+                st.status = 'paused';
+                setChip(mid, 'paused', 'En pause');
+                setModuleControls(mid, 'paused');
+            } else if(act === 'resume' && d.status === 'running'){
+                st.status = 'running';
+                setChip(mid, 'running', fmtTime(st.elapsedBase, true));
+                setModuleControls(mid, 'running');
             }
         })
-        .catch(() => fail('Impossible de lancer le scan (erreur réseau).'));
+        .catch(() => alert('Action impossible (erreur réseau).'));
 }
+
+// ---- Reconnexion au scan en cours après un rechargement de page ----
+function mountAppContinue(){
+    const base = mBase("{{ url_for('scenario_scan_all', pid=project.id) }}");
+    fetch(base + '/status')
+        .then(r => r.json())
+        .then(d => {
+            const h = scanHandle(d);
+            if(h === 'running' || h === 'paused'){
+                const st = {
+                    base: base, statusUrl: base + '/status',
+                    status: h === 'paused' ? 'paused' : 'running',
+                    done: false, err: false, stopped: false,
+                    scope: 'Application', progress: '—', message: '',
+                    timerText: fmtTime(d.elapsed, true), elapsedBase: d.elapsed || 0
+                };
+                APP_SCAN = st;
+                setConsoleExpanded(false);
+                updateScanAllBtn();
+                beginAppElapsed();
+                pollOnce(base + '/status', {
+                    dispatch: appDispatch,
+                    settle: appSettle,
+                    onNetError: appNetError,
+                    timer: null
+                });
+            }
+        })
+        .catch(() => {});
+}
+
+function mountModuleContinue(){
+    for(const mid in MODULE_URLS){
+        (function(mid2){
+            const base = mBase(MODULE_URLS[mid2]);
+            fetch(mAction(base, 'status'))
+                .then(r => r.json())
+                .then(d => {
+                    const h = scanHandle(d);
+                    const existing = MODULE_SCANS[mid2];
+                    if(existing){
+                        existing.base = base;
+                        existing.statusUrl = base + '/status';
+                    }
+                    if(h === 'running' || h === 'paused'){
+                        if(!existing){
+                            MODULE_SCANS[mid2] = {
+                                base: base, statusUrl: base + '/status',
+                                status: h === 'paused' ? 'paused' : 'running',
+                                done: false, err: false, stopped: false,
+                                elapsedBase: d.elapsed || 0, timerText: '…'
+                            };
+                        } else {
+                            MODULE_SCANS[mid2].status = h === 'paused' ? 'paused' : 'running';
+                            MODULE_SCANS[mid2].elapsedBase = d.elapsed || MODULE_SCANS[mid2].elapsedBase;
+                        }
+                        if(!existing || existing.status !== 'running' && existing.status !== 'paused'){
+                            beginModulePoll(mid2);
+                        } else {
+                            moduleDispatch(mid2, d);
+                        }
+                    } else if(h === 'err' || h === 'stopped' || h === 'done'){
+                        setChip(mid2, h, h === 'done' ? 'Mis à jour' : h === 'stopped' ? 'Arrêté — données conservées' : 'Échec');
+                        setModuleControls(mid2, h);
+                        if(h === 'err'){
+                            const btn = moduleBtn(mid2);
+                            if(btn){ btn.disabled = false; btn.innerHTML = SCAN_ARROW_SVG; btn.classList.remove('generating'); }
+                        }
+                    }
+                })
+                .catch(() => {});
+        })(mid);
+    }
+}
+
+
+
+mountModuleContinue();
 
 document.querySelectorAll('.module-check').forEach(chk => {
     chk.addEventListener('change', () => {

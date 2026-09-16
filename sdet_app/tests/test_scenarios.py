@@ -358,7 +358,7 @@ def test_module_scan_detects_functionalities_and_steps(client, _init_db, monkeyp
 
     monkeypatch.setattr(
         app_mod.generator, "scan_module",
-        lambda project, module_name, nav_path=None: (
+        lambda project, module_name, nav_path=None, control=None: (
             [{"functionality": "Créer un client", "path": "",
               "url": "https://kpip.kprimesoft.com/crm/clients",
               "steps": ["CRÉATION", "Remplir le champ Nom avec QA_CLIENT"]},
@@ -400,7 +400,8 @@ def test_module_scan_error_surfaces(client, _init_db, monkeypatch):
 
     monkeypatch.setattr(
         app_mod.generator, "scan_module",
-        lambda project, module_name, nav_path=None: ([], "Aucun formulaire détecté."))
+        lambda project, module_name, nav_path=None, control=None: (
+            [], "Aucun formulaire détecté."))
 
     pid = _make_project(client)
     client.post(f"/projects/{pid}/scenarios/modules", data={"name": "IMS"},
@@ -430,7 +431,8 @@ def test_scan_all_detects_modules_and_writes_tree(client, _init_db, monkeypatch)
              "steps": ["CRÉATION", "Remplir le champ Nom avec QA_FACTURE"]}]},
     ]
     monkeypatch.setattr(app_mod.generator, "scan_whole_app",
-                        lambda project, on_module_progress=None: (fake_modules, None))
+                        lambda project, on_module_progress=None, control=None:
+                        (fake_modules, None))
 
     pid = _make_project(client)
     client.post(f"/projects/{pid}/scenarios/modules", data={"name": "Ancien"},
@@ -460,7 +462,7 @@ def test_scan_all_error_surfaces(client, _init_db, monkeypatch):
     from sdet_app import app as app_mod
 
     monkeypatch.setattr(app_mod.generator, "scan_whole_app",
-                        lambda project, on_module_progress=None:
+                        lambda project, on_module_progress=None, control=None:
                         ([], "Aucun module détecté dans la navigation."))
 
     pid = _make_project(client)
@@ -474,11 +476,11 @@ def test_scan_all_error_surfaces(client, _init_db, monkeypatch):
 
 
 def test_scenarios_page_has_scan_controls(client, _init_db):
-    """The scenarios page exposes the scan-all button and per-module actions,
-    and no longer shows the 'Ajouter une fonctionnalité' form."""
+    """The scenarios page exposes per-module scan actions but hides the
+    deprecated 'Scanner tout le logiciel' button."""
     pid = _make_project(client)
     body = client.get(f"/projects/{pid}/scenarios").get_data(as_text=True)
-    assert "Scanner tout le logiciel" in body
+    assert 'id="scanAllBtn"' not in body
     assert "Ajouter une fonctionnalité" not in body
     client.post("/projects/{}/delete".format(pid))
 
@@ -536,3 +538,31 @@ def test_module_url_shown_and_editable(client, _init_db):
     fn = database.list_functionalities(mod["id"])[0]
     assert fn["url"] == "https://kpip.kprimesoft.com/ims/clients"
     client.post("/projects/{}/delete".format(pid))
+
+
+def test_scan_inline_controls_hidden_by_default(client, _init_db):
+    """The deprecated scan-all button/console must be gone, and the module
+    scan controls (Pause/Resume/Stop) must be hidden when no scan runs."""
+    pid = _make_project(client)
+    client.post(f"/projects/{pid}/scenarios/modules",
+                data={"name": "CRM"}, follow_redirects=True)
+    body = client.get(f"/projects/{pid}/scenarios").get_data(as_text=True)
+
+    # The deprecated scan-all button + inline console must NOT exist.
+    assert 'id="scanAllBtn"' not in body
+    assert 'id="scanInlineCtl"' not in body
+    assert 'class="scan-console' not in body
+    assert 'id="scanConsole"' not in body
+    assert 'id="scanScope"' not in body
+
+    # Module scan controls still exist and are hidden by default.
+    assert 'class="icon-btn ms-pause"' in body
+    assert 'class="icon-btn ms-resume"' in body
+    assert 'class="icon-btn ms-stop"' in body
+    assert "hidden" in body
+
+    # The per-module scan action is still available.
+    assert 'startModuleScan(this,' in body
+    assert 'setModuleControls' in body
+
+    client.post(f"/projects/{pid}/delete")

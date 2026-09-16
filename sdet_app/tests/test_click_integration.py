@@ -6,6 +6,7 @@ clicks the RIGHT one (not just any button).
 """
 import pytest
 from playwright.sync_api import sync_playwright
+from sdet_app.config import setting_bool, env
 
 # ---------------------------------------------------------------------------
 # Realistic page: sidebar nav + DataTable with action buttons per row
@@ -129,7 +130,7 @@ def page_url(tmp_path_factory):
 @pytest.fixture(scope="module")
 def browser():
     with sync_playwright() as p:
-        br = p.chromium.launch(headless=True)
+        br = p.chromium.launch(headless=setting_bool("headless", env.HEADLESS))
         yield br
         br.close()
 

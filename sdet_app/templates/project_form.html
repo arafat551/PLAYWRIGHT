@@ -35,7 +35,7 @@
 
         <label>Environnement</label>
         <select name="environment">
-            {% for e in ['DEV','TEST','STAGING','PRODUCTION'] %}
+            {% for e in ['STAGING','PRODUCTION'] %}
             <option value="{{ e }}" {{ 'selected' if project and project.environment==e else '' }}>{{ e }}</option>
             {% endfor %}
         </select>

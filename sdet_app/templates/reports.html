@@ -14,7 +14,7 @@
     <div class="table-scroll">
     <table class="data-table" id="reportsTable" data-sortable>
         <thead>
-            <tr><th>Date</th><th>Type</th><th>Projet</th><th>Étapes</th><th>PASS</th><th>FAIL</th><th>Warn</th><th>Réussite</th><th>Lancé par</th><th>Téléchargement</th></tr>
+            <tr><th>Date</th><th>Type</th><th>Projet</th><th>Étapes</th><th>PASS</th><th>FAIL</th><th>Warn</th><th>Réussite</th><th>Lancé par</th><th>Consulter</th><th>PDF</th></tr>
         </thead>
         <tbody>
             {% for t in tests %}
@@ -28,18 +28,16 @@
                 <td class="text-warning">{{ t.warning }}</td>
                 <td>{% if t.total and t.total>0 %}{{ ((t.passed/t.total)*100)|round(1) }}%{% else %}-{% endif %}</td>
                 <td class="text-small">{{ t.launched_by }}</td>
-                <td class="actions-cell">
-                    <span class="actions-cell-links">
-                        <a href="{{ url_for('report_detail', tid=t.id) }}">Consulter</a>
-                        <a href="{{ url_for('report_download', tid=t.id) }}" class="icon-link" title="Télécharger le rapport en PDF">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-                            <span class="text-muted text-small">PDF</span>
-                        </a>
-                    </span>
+                <td><a href="{{ url_for('report_detail', tid=t.id) }}">Consulter</a></td>
+                <td>
+                    <a href="{{ url_for('report_download', tid=t.id) }}" class="pdf-link" title="Télécharger le rapport en PDF">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                        PDF
+                    </a>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="10" class="text-muted text-center">Aucun rapport</td></tr>
+            <tr><td colspan="11" class="text-muted text-center">Aucun rapport</td></tr>
             {% endfor %}
         </tbody>
     </table>
