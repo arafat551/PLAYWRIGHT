@@ -309,8 +309,6 @@ Types d’authentification :
 Aucune
 
 Simple
-
-2FA / OTP
 ```
 
 Ajouter :
@@ -1099,48 +1097,6 @@ FAIL
 
 ---
 
-# 27. Gestion OTP / 2FA
-
-Conserver le comportement actuel.
-
-```text
-Login
-↓
-Email + password
-↓
-Connexion
-↓
-OTP détecté
-↓
-WAITING_FOR_OTP
-```
-
-L’interface QA affiche :
-
-```text
-Authentification requise
-
-Code OTP
-
-[ _ _ _ _ _ _ ]
-
-[ Continuer ]
-```
-
-Le navigateur Playwright doit rester ouvert.
-
-Après saisie :
-
-```text
-OTP
-↓
-validation
-↓
-test continue
-```
-
----
-
 # 28. Actions sensibles
 
 Ne pas exécuter automatiquement :
@@ -1778,7 +1734,6 @@ SQLite
 ```text
 Playwright
 Authentification
-2FA
 Exploration
 Cartographie
 ```

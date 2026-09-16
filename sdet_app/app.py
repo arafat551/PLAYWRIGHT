@@ -15,7 +15,7 @@ from datetime import datetime
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify, send_file, abort)
 
-from .config import env, get_setting, apply_settings
+from .config import env, get_setting, apply_settings, reset_settings
 from . import database, security, mailer
 from .sdet import planner, engine, generator
 from .sdet.action_library import list_action_types, _human_description
@@ -32,10 +32,23 @@ database.init_db()
 # ---------------------------------------------------------------------------
 # Background step-generation tracking (in-memory, single local user)
 # ---------------------------------------------------------------------------
-GENERATE_TIMEOUT = 180  # seconds before the generation is reported as timed out
+GENERATE_TIMEOUT = 180  # single-functionality step generation
+MODULE_SCAN_TIMEOUT = 3600  # generous ceiling for scanning one module
+APP_SCAN_TIMEOUT = 4 * 3600  # generous ceiling for scanning the whole app
 
 _generate_lock = threading.Lock()
 _generations = {}  # fid -> {status, steps, error, started, finished}
+
+
+def _active_elapsed(g, now=None):
+    """Elapsed scan time, excluding the time spent paused."""
+    now = now or time.time()
+    elapsed = now - g.get("started", 0)
+    paused = g.get("paused_total", 0)
+    at = g.get("paused_at")
+    if at is not None:
+        paused += now - at
+    return max(0, elapsed - paused)
 
 
 def _prune_generations(now):
@@ -707,18 +720,26 @@ def scenario_module_generate(pid, mid):
     if _get_scan(key).get("status") == "running":
         return jsonify({"status": "running"}), 409
 
+    control = generator.ScanControl()
     _set_scan(key, status="running", message=None, started=time.time(),
-              finished=None)
+              finished=None, control=control, paused_at=None, paused_total=0)
 
     def _worker():
         try:
-            results, err = generator.scan_module(project, module)
+            results, err = generator.scan_module(project, module,
+                                                 control=control)
             if not err and results:
                 mod_url = module.get("url") or ""
                 if mod_url:
                     database.update_module(mid, module.get("name", ""),
                                            module.get("description", ""),
                                            mod_url)
+        except generator.ScanCancelled:
+            _set_scan(key, status="stopped",
+                      message="Scan arrêté — les données existantes ont été "
+                              "conservées.",
+                      finished=time.time())
+            return
         except Exception as e:
             results, err = [], f"Échec du scan du module : {e}"
         if err:
@@ -761,16 +782,75 @@ def scenario_module_generate_status(pid, mid):
     if not g:
         return jsonify({"status": "idle"})
     if g["status"] == "running":
-        if time.time() - g.get("started", 0) > GENERATE_TIMEOUT:
+        ctrl = g.get("control")
+        if ctrl is not None and ctrl.paused:
+            _set_scan(key, paused_at=time.time())
+            return jsonify({"status": "paused",
+                            "elapsed": round(_active_elapsed(g))})
+        if _active_elapsed(g) > MODULE_SCAN_TIMEOUT:
             _set_scan(key, status="error",
-                      message=f"Le scan a dépassé le délai de {GENERATE_TIMEOUT} secondes.",
+                      message=f"Le scan a dépassé le délai de "
+                              f"{MODULE_SCAN_TIMEOUT} secondes.",
                       finished=time.time())
             return jsonify({"status": "error",
                             "message": _get_scan(key).get("message")})
         return jsonify({"status": "running",
-                        "elapsed": round(time.time() - g.get("started", 0))})
+                        "elapsed": round(_active_elapsed(g))})
     return jsonify({"status": g["status"], "message": g.get("message"),
                     "count": g.get("count", 0)})
+
+
+@app.route(
+    "/projects/<int:pid>/scenarios/modules/<int:mid>/generate/pause",
+    methods=["POST"])
+@login_required
+def scenario_module_generate_pause(pid, mid):
+    key = ("module", mid)
+    g = _get_scan(key)
+    if g.get("status") != "running":
+        return jsonify({"status": "error",
+                        "message": "Aucun scan en cours."}), 400
+    ctrl = g.get("control")
+    if ctrl is not None:
+        ctrl.set_paused(True)
+        _set_scan(key, paused_at=time.time())
+    return jsonify({"status": "paused"})
+
+
+@app.route(
+    "/projects/<int:pid>/scenarios/modules/<int:mid>/generate/resume",
+    methods=["POST"])
+@login_required
+def scenario_module_generate_resume(pid, mid):
+    key = ("module", mid)
+    g = _get_scan(key)
+    ctrl = g.get("control")
+    if g.get("status") != "running" or ctrl is None or not ctrl.paused:
+        return jsonify({"status": "error",
+                        "message": "Le scan n'est pas en pause."}), 400
+    at = g.get("paused_at")
+    if at is not None:
+        _set_scan(key, paused_at=None,
+                  paused_total=g.get("paused_total", 0) + time.time() - at)
+    ctrl.set_paused(False)
+    return jsonify({"status": "running"})
+
+
+@app.route(
+    "/projects/<int:pid>/scenarios/modules/<int:mid>/generate/stop",
+    methods=["POST"])
+@login_required
+def scenario_module_generate_stop(pid, mid):
+    key = ("module", mid)
+    g = _get_scan(key)
+    if g.get("status") != "running":
+        return jsonify({"status": "error",
+                        "message": "Aucun scan en cours."}), 400
+    ctrl = g.get("control")
+    if ctrl is not None:
+        ctrl.cancel()
+        _set_scan(key, paused_at=None)
+    return jsonify({"status": "stopping"})
 
 
 @app.route("/projects/<int:pid>/scenarios/scan", methods=["POST"])
@@ -792,12 +872,19 @@ def scenario_scan_all(pid):
     if _get_scan(key).get("status") == "running":
         return jsonify({"status": "running"}), 409
 
+    control = generator.ScanControl()
     _set_scan(key, status="running", message=None, started=time.time(),
-              finished=None)
+              finished=None, control=control, paused_at=None, paused_total=0)
 
     def _worker():
         try:
-            modules, err = generator.scan_whole_app(project)
+            modules, err = generator.scan_whole_app(project, control=control)
+        except generator.ScanCancelled:
+            _set_scan(key, status="stopped",
+                      message="Scan arrêté — les données existantes ont été "
+                              "conservées.",
+                      finished=time.time())
+            return
         except Exception as e:
             modules, err = [], f"Échec du scan de l'application : {e}"
         if err:
@@ -843,16 +930,69 @@ def scenario_scan_all_status(pid):
     if not g:
         return jsonify({"status": "idle"})
     if g["status"] == "running":
-        if time.time() - g.get("started", 0) > GENERATE_TIMEOUT:
+        ctrl = g.get("control")
+        if ctrl is not None and ctrl.paused:
+            _set_scan(key, paused_at=time.time())
+            return jsonify({"status": "paused",
+                            "elapsed": round(_active_elapsed(g))})
+        if _active_elapsed(g) > APP_SCAN_TIMEOUT:
             _set_scan(key, status="error",
-                      message=f"Le scan a dépassé le délai de {GENERATE_TIMEOUT} secondes.",
+                      message=f"Le scan a dépassé le délai de "
+                              f"{APP_SCAN_TIMEOUT} secondes.",
                       finished=time.time())
             return jsonify({"status": "error",
                             "message": _get_scan(key).get("message")})
         return jsonify({"status": "running",
-                        "elapsed": round(time.time() - g.get("started", 0))})
+                        "elapsed": round(_active_elapsed(g))})
     return jsonify({"status": g["status"], "message": g.get("message"),
                     "count": g.get("count", 0)})
+
+
+@app.route("/projects/<int:pid>/scenarios/scan/pause", methods=["POST"])
+@login_required
+def scenario_scan_all_pause(pid):
+    key = ("app", pid)
+    g = _get_scan(key)
+    if g.get("status") != "running":
+        return jsonify({"status": "error",
+                        "message": "Aucun scan en cours."}), 400
+    ctrl = g.get("control")
+    if ctrl is not None:
+        ctrl.set_paused(True)
+        _set_scan(key, paused_at=time.time())
+    return jsonify({"status": "paused"})
+
+
+@app.route("/projects/<int:pid>/scenarios/scan/resume", methods=["POST"])
+@login_required
+def scenario_scan_all_resume(pid):
+    key = ("app", pid)
+    g = _get_scan(key)
+    ctrl = g.get("control")
+    if g.get("status") != "running" or ctrl is None or not ctrl.paused:
+        return jsonify({"status": "error",
+                        "message": "Le scan n'est pas en pause."}), 400
+    at = g.get("paused_at")
+    if at is not None:
+        _set_scan(key, paused_at=None,
+                  paused_total=g.get("paused_total", 0) + time.time() - at)
+    ctrl.set_paused(False)
+    return jsonify({"status": "running"})
+
+
+@app.route("/projects/<int:pid>/scenarios/scan/stop", methods=["POST"])
+@login_required
+def scenario_scan_all_stop(pid):
+    key = ("app", pid)
+    g = _get_scan(key)
+    if g.get("status") != "running":
+        return jsonify({"status": "error",
+                        "message": "Aucun scan en cours."}), 400
+    ctrl = g.get("control")
+    if ctrl is not None:
+        ctrl.cancel()
+        _set_scan(key, paused_at=None)
+    return jsonify({"status": "stopping"})
 
 
 @app.route("/projects/<int:pid>/scenarios/steps/<int:sid>/delete", methods=["POST"])
@@ -1005,18 +1145,6 @@ SETTINGS_FIELDS = [
     ("headless", "Navigateur sans interface (headless)", "bool",
      "Activez : le navigateur s'exécute en arrière-plan, sans fenêtre visible. "
      "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement."),
-    ("smtp_host", "Serveur SMTP", "text",
-     "Hôte d'envoi des e-mails (ex. smtp.gmail.com). Laissez vide pour désactiver les envois."),
-    ("smtp_port", "Port SMTP", "int",
-     "Port (587 TLS par défaut, 465 pour SSL)."),
-    ("smtp_user", "Utilisateur SMTP", "text",
-     "Compte servant à l'authentification."),
-    ("smtp_password", "Mot de passe SMTP", "password",
-     "Mot de passe applicatif du compte SMTP."),
-    ("smtp_from", "Expéditeur", "text",
-     "Adresse affichée comme expéditeur (vide = utilisateur SMTP)."),
-    ("smtp_secure", "Sécurité SMTP", "text",
-     "tls ou ssl."),
 ]
 
 SETTINGS_DEFAULTS = {
@@ -1025,12 +1153,6 @@ SETTINGS_DEFAULTS = {
     "max_forms": 30,
     "page_timeout": env.PAGE_TIMEOUT,
     "headless": env.HEADLESS,
-    "smtp_host": "",
-    "smtp_port": "587",
-    "smtp_user": "",
-    "smtp_password": "",
-    "smtp_from": "",
-    "smtp_secure": "tls",
 }
 
 
@@ -1046,6 +1168,8 @@ def settings():
             elif raw:
                 payload[key] = raw
         apply_settings(payload)
+        reset_settings(("smtp_host", "smtp_port", "smtp_user", "smtp_password",
+                        "smtp_from", "smtp_secure"))
         flash("Paramètres enregistrés", "success")
         return redirect(url_for("settings"))
 
@@ -1054,33 +1178,8 @@ def settings():
     return render_template("settings.html", fields=SETTINGS_FIELDS, vals=vals)
 
 
-@app.route("/settings/send-test-email", methods=["POST"])
-@login_required
-def settings_send_test_email():
-    """Envoie un e-mail de test pour valider la configuration SMTP (utilisée
-    notamment pour les mots de passe temporaires à la création d'un utilisateur)."""
-    recipient = (request.form.get("recipient") or "").strip()
-    if not recipient:
-        flash("Indiquez l'adresse e-mail qui recevra le message de test", "error")
-        return redirect(url_for("settings"))
-    host = get_setting("smtp_host") or ""
-    sent = mailer.send_email(
-        recipient,
-        "Test SMTP AUTOMATION",
-        "<p>Félicitations, votre configuration SMTP fonctionne correctement !</p>")
-    if sent:
-        flash(f"E-mail de test envoyé à {recipient}", "success")
-    elif host:
-        flash("Échec de l'envoi SMTP : vérifiez l'hôte, le port et les identifiants. "
-              "Le message a été placé dans la boîte de sortie.", "error")
-    else:
-        flash("SMTP non configuré : le message de test a été mis dans la boîte de sortie (outbox).",
-              "info")
-    return redirect(url_for("settings"))
-
-
 # ---------------------------------------------------------------------------
-# Test view / OTP / cancel / results
+# Test view / cancel / results
 # ---------------------------------------------------------------------------
 
 @app.route("/tests/<int:tid>")
@@ -1093,7 +1192,7 @@ def test_view(tid):
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
     progress = None
-    if test.status in ("running", "waiting_otp", "otp_submitted"):
+    if test.status == "running":
         progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
@@ -1102,18 +1201,6 @@ def test_view(tid):
     else:
         template = "test_run.html"
     return render_template(template, test=test, results=results, progress=progress)
-
-
-@app.route("/tests/<int:tid>/otp", methods=["POST"])
-@login_required
-def test_otp(tid):
-    code = request.form.get("otp_code", "").strip()
-    if not code:
-        flash("Veuillez saisir le code OTP", "error")
-        return redirect(url_for("test_view", tid=tid))
-    database.submit_otp(tid, code)
-    flash("Code OTP envoyé", "success")
-    return redirect(url_for("test_view", tid=tid))
 
 
 @app.route("/tests/<int:tid>/cancel", methods=["POST"])
@@ -1479,9 +1566,9 @@ def _validate_project(data, editing=False):
         errors.append("Le nom du projet est obligatoire")
     if not data["url"] or not data["url"].startswith("http"):
         errors.append("Une URL valide (http/https) est obligatoire")
-    if data["auth_type"] not in ("none", "simple", "2fa"):
+    if data["auth_type"] not in ("none", "simple"):
         errors.append("Type d'authentification invalide")
-    if data["environment"] not in ("DEV", "TEST", "STAGING", "PRODUCTION"):
+    if data["environment"] not in ("STAGING", "PRODUCTION"):
         errors.append("Environnement invalide")
     if not editing and not data["password"] and data["auth_type"] != "none":
         errors.append("Le mot de passe est requis pour cette authentification")

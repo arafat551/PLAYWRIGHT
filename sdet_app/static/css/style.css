@@ -375,6 +375,23 @@ main.with-sidebar {
 .icon-generate:hover { background: var(--brand-050); border-color: var(--brand); color: var(--brand); }
 .icon-running { color: var(--brand); animation: pulse 1.5s infinite; }
 
+/* Project table action buttons — colored, ready-to-read */
+.cell-actions .icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+.action-view { background: var(--info-050); border-color: #bfdbfe; color: var(--info); }
+.action-view:hover { background: #dbeafe; border-color: var(--info); color: var(--info); transform: translateY(-1px); }
+.action-edit { background: var(--warning-050); border-color: #fde68a; color: var(--warning-600); }
+.action-edit:hover { background: #fef3c7; border-color: var(--warning); color: var(--warning-600); transform: translateY(-1px); }
+.action-delete { background: var(--danger-050); border-color: #fecaca; color: var(--danger-600); }
+.action-delete:hover { background: #ffe4e6; border-color: var(--danger); color: var(--danger-600); transform: translateY(-1px); }
+.action-toggle { background: var(--surface-2); border-color: var(--border-strong); color: var(--text-2); }
+.action-toggle:hover { background: #eef1f7; border-color: #c3cad9; color: var(--text); transform: translateY(-1px); }
+.action-activate { background: var(--success-050); border-color: #bbf7d0; color: var(--success-600); }
+.action-activate:hover { background: #dcfce7; border-color: var(--success); color: var(--success-600); transform: translateY(-1px); }
+
 .form-actions {
   margin-top: 1.5rem;
   display: flex;
@@ -415,7 +432,7 @@ input[type="url"]:focus, input[type="number"]:focus, select:focus, textarea:focu
 textarea { resize: vertical; min-height: 96px; }
 select { background: var(--surface); cursor: pointer; }
 
-.form-card { max-width: 640px; }
+.form-card { max-width: 640px; margin: 0 auto; }
 
 .settings-form { max-width: 760px; }
 .settings-row {
@@ -621,7 +638,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .badge-exploring { background: var(--violet-050); color: #6d28d9; }
 .badge-explored { background: var(--success-050); color: #047857; }
 .badge-cancel_requested { background: var(--warning-050); color: var(--warning-600); }
-.badge-waiting_otp { background: var(--warning-050); color: var(--warning-600); }
 .badge-failed { background: var(--danger-050); color: var(--danger-600); }
 .badge-cancelled { background: #f1f5f9; color: #475569; }
 .badge-error { background: var(--danger-050); color: var(--danger-600); }
@@ -657,7 +673,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .status-dot.exploring { background: var(--violet); animation: pulse 1.4s infinite; }
 .status-dot.explored { background: #10b981; }
 .status-dot.cancel_requested { background: var(--warning); animation: pulse 1.4s infinite; }
-.status-dot.waiting_otp { background: var(--warning); animation: pulse 1.4s infinite; }
 .status-dot.cancelled { background: #9ca3af; }
 
 @keyframes pulse {
@@ -756,20 +771,6 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .progress-pass { background: var(--success); }
 .progress-warn { background: var(--warning); }
 .progress-fail { background: var(--danger); }
-
-/* ==========================================================================
-   OTP
-   ========================================================================== */
-
-.card-otp {
-  border: 1px solid #fcd34d;
-  background: linear-gradient(180deg, #fffbeb, #fff7e0);
-  max-width: 520px;
-}
-.card-otp h2 { color: var(--warning-600); }
-.card-otp form { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; margin-top: 0.8rem; }
-.card-otp form input { max-width: 200px; }
-.card-otp form .btn-primary { margin-top: 0; }
 
 /* ==========================================================================
    Results
@@ -916,6 +917,21 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .actions-cell { white-space: nowrap; display: flex; gap: 0.4rem; align-items: center; }
 .actions-cell .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--muted); border: 1px solid var(--border); transition: all 0.15s ease; }
 .actions-cell .icon-link:hover { color: var(--brand); border-color: var(--brand); background: var(--brand-050); }
+
+.pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 7px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-050);
+  border: 1px solid #fecaca;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pdf-link:hover { background: #ffe4e6; border-color: var(--danger); color: var(--danger-600); }
 
 .page-actions-list {
   padding: 0.5rem;
@@ -2476,3 +2492,302 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
 
 .font-normal { font-weight: 400; }
 .settings-sep { border: none; border-top: 1px solid var(--border, #e6e9f0); margin: 1.2rem 0; }
+
+/* ==========================================================================
+   Console de scan flottante & badges d'état (page Scénarios)
+   ========================================================================== */
+.scan-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.scan-console {
+  position: sticky;
+  top: 0.8rem;
+  z-index: 45;
+  margin: 0 0 1.2rem auto;
+  width: min(600px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.scan-console.expanded {
+  border-color: var(--brand-200, #c7c9f7);
+  box-shadow: 0 18px 40px -14px rgba(79, 70, 229, 0.35);
+}
+
+.scan-console-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  user-select: none;
+}
+.scan-console-head:hover { background: #f1f5fb; }
+
+.scan-label {
+  flex: 1;
+  font-weight: 650;
+  font-size: 0.86rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scan-timer {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.scan-chev { color: var(--muted); font-size: 0.8rem; }
+
+.scan-console-body {
+  padding: 0.7rem 0.9rem 0.9rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.scan-console-meta {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.7rem;
+  flex-wrap: wrap;
+}
+.scan-console-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.scan-console-actions .btn-secondary,
+.scan-console-actions .btn-primary,
+.scan-console-actions .btn-danger { margin-top: 0; font-size: 0.82rem; }
+.scan-console-body .scan-message { margin: 0.6rem 0 0; }
+
+/* Point d'état : console (flottante) + badge module */
+.scan-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.scan-dot-running { background: var(--brand); animation: scanPulse 1.2s ease infinite; }
+.scan-dot-paused { background: #f59e0b; }
+.scan-dot-done { background: #16a34a; }
+.scan-dot-stopped { background: #f59e0b; }
+.scan-dot-err { background: var(--danger); }
+.scan-dot-idle { background: var(--muted); }
+@keyframes scanPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+}
+
+/* ---- Scan inline controls (same line as Scanner button) ---- */
+.scan-inline-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  animation: scanInlineIn 0.25s ease;
+}
+.scan-inline-ctl[hidden] { display: none !important; }
+@keyframes scanInlineIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.scan-inline-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong, var(--border));
+  flex-shrink: 0;
+}
+.scan-inline-ctl .scan-label {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.scan-inline-ctl .scan-timer {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.btn-scan-ctl {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  line-height: 1.3;
+  margin-top: 0 !important;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn-scan-ctl:hover {
+  background: var(--surface-2);
+  border-color: #c3cad9;
+  color: var(--text);
+}
+.btn-scan-ctl.btn-primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.btn-scan-ctl.btn-primary:hover {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+}
+.btn-scan-ctl.btn-danger {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: #fca5a5;
+}
+.btn-scan-ctl.btn-danger:hover {
+  background: var(--danger-050);
+  border-color: var(--danger);
+}
+.scan-msg:empty { display: none; }
+.scan-msg:not(:empty) {
+  color: var(--danger);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Badge de progression d'un module (ligne d'en-tête du module) */
+.module-scan-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.module-scan-state[hidden],
+.module-scan-state button[hidden],
+.icon-btn[hidden] {
+  display: none !important;
+}
+.scan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.module-scan-state .icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+/* Scenario page action buttons — same colored style as project table */
+.module-actions .icon-btn,
+.fn-text-btns .icon-btn,
+.step-row .icon-btn {
+  border-radius: 9px;
+}
+.module-actions .icon-generate,
+.fn-text-btns .icon-generate {
+  background: var(--info-050);
+  border-color: #bfdbfe;
+  color: var(--info);
+}
+.module-actions .icon-generate:hover,
+.fn-text-btns .icon-generate:hover {
+  background: #dbeafe;
+  border-color: var(--info);
+  color: var(--info);
+  transform: translateY(-1px);
+}
+.module-actions .icon-edit,
+.fn-text-btns .icon-edit,
+.step-row .icon-edit {
+  background: var(--warning-050);
+  border-color: #fde68a;
+  color: var(--warning-600);
+}
+.module-actions .icon-edit:hover,
+.fn-text-btns .icon-edit:hover,
+.step-row .icon-edit:hover {
+  background: #fef3c7;
+  border-color: var(--warning);
+  color: var(--warning-600);
+  transform: translateY(-1px);
+}
+.module-actions .icon-delete,
+.fn-text-btns .icon-delete,
+.step-row .icon-delete {
+  background: var(--danger-050);
+  border-color: #fecaca;
+  color: var(--danger-600);
+}
+.module-actions .icon-delete:hover,
+.fn-text-btns .icon-delete:hover,
+.step-row .icon-delete:hover {
+  background: #ffe4e6;
+  border-color: var(--danger);
+  color: var(--danger-600);
+  transform: translateY(-1px);
+}
+.module-actions summary.icon-btn,
+.fn-text-btns summary.icon-btn {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+.module-actions summary.icon-btn:hover,
+.fn-text-btns summary.icon-btn:hover {
+  background: #eef1f7;
+  border-color: #c3cad9;
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.module-scan-state .ms-pause {
+  background: var(--warning-050);
+  border-color: #fde68a;
+  color: #b45309;
+}
+.module-scan-state .ms-pause:hover {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #b45309;
+}
+.module-scan-state .ms-resume {
+  background: var(--info-050);
+  border-color: #bfdbfe;
+  color: var(--info);
+}
+.module-scan-state .ms-resume:hover {
+  background: #dbeafe;
+  border-color: var(--info);
+  color: var(--info);
+}
+.module-scan-state .ms-stop {
+  background: var(--danger-050);
+  border-color: #fecaca;
+  color: var(--danger-600);
+}
+.module-scan-state .ms-stop:hover {
+  background: #ffe4e6;
+  border-color: var(--danger);
+  color: var(--danger-600);
+}

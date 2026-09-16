@@ -6,6 +6,7 @@ Playwright, no API key needed.
 """
 import pytest
 from playwright.sync_api import sync_playwright
+from sdet_app.config import setting_bool, env
 
 
 # -----------------------------------------------------------------------
@@ -127,7 +128,7 @@ def page_url(tmp_path_factory):
 @pytest.fixture(scope="module")
 def browser():
     with sync_playwright() as p:
-        br = p.chromium.launch(headless=True)
+        br = p.chromium.launch(headless=setting_bool("headless", env.HEADLESS))
         yield br
         br.close()
 

@@ -38,7 +38,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-{% if test.status in ('exploring','running','waiting_otp','cancel_requested') %}
+{% if test.status in ('exploring','running','cancel_requested') %}
 setInterval(function(){
     fetch(location.href, {headers:{'Accept':'text/html'}})
         .then(r=>r.text())

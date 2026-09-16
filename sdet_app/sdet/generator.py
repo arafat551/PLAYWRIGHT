@@ -13,6 +13,7 @@ the form to inspect its fields.
 """
 import datetime
 import re
+import threading
 import time
 
 from .. import security
@@ -24,6 +25,40 @@ from .forms import _field_type, _label_for_field, _required, _tag, find_form
 def _log(msg):
     ts = time.strftime("%H:%M:%S")
     print(f"[GENERATOR {ts}] {msg}", flush=True)
+
+
+class ScanCancelled(Exception):
+    """Scan stopped by the user."""
+
+
+class ScanControl:
+    """Thread-safe pause/stop control shared between the scan thread and the
+    web layer.  The scan calls ``check()`` at module & functionality boundaries.
+    """
+    def __init__(self):
+        self._cancelled = threading.Event()
+        self._paused = threading.Event()
+
+    def cancel(self):
+        self._cancelled.set()
+
+    def set_paused(self, v):
+        if v:
+            self._paused.set()
+        else:
+            self._paused.clear()
+
+    @property
+    def paused(self):
+        return self._paused.is_set()
+
+    def check(self):
+        if self._cancelled.is_set():
+            raise ScanCancelled()
+        while self._paused.is_set():
+            if self._cancelled.is_set():
+                raise ScanCancelled()
+            time.sleep(0.25)
 
 _CREATE_WORDS = ("ajouter", "ajoutez", "nouveau", "nouvelle", "nouvel", "créer",
                  "creer", "création", "creation", "add", "new", "create")
@@ -171,6 +206,65 @@ def _scan_menu_items(page):
         return []
 
 
+def _sidebar_tree(page):
+    """Harvest the full sidebar navigation tree, including collapsed sections.
+
+    Many admin templates (AdminLTE, Metronic, ...) render the complete module
+    tree in the DOM with hidden sub-menus (`display:none`). A visibility-only
+    scan would miss every collapsed module, so here we read the structure
+    directly and extract section + links regardless of visibility.
+
+    Returns a list of sections:
+      {"name": str, "href": str, "links": [{"label", "href"}, ...]}
+      - a section with links is an expandable module (its own href is empty)
+      - a section without links is a plain top-level page
+    """
+    try:
+        return page.evaluate(
+            """() => {
+                const pick = (anchor) => {
+                    const clone = anchor.cloneNode(true);
+                    clone.querySelectorAll('i, .badge, .fa, .far, .fas, ' +
+                        '.right, .float-right, .submenu-indicator, ' +
+                        '[class*="icon"], [class*="fa-"]').forEach(e => e.remove());
+                    return (clone.innerText || '').replace(/\\s+/g, ' ').trim();
+                };
+                const root = document.querySelector('#main-sidebar') ||
+                    document.querySelector('aside .sidebar nav') ||
+                    document.querySelector('.sidebar nav') ||
+                    document.querySelector('aside nav');
+                if (!root) return [];
+                const tree = root.querySelector('ul.nav-sidebar') ||
+                    root.querySelector('ul');
+                if (!tree) return [];
+                const sections = [];
+                for (const li of tree.children) {
+                    const a = li.querySelector(':scope > a');
+                    if (!a) continue;
+                    const href = (a.getAttribute('href') || '').trim();
+                    const sub = li.querySelector(':scope > ul');
+                    if (sub) {
+                        const links = [];
+                        sub.querySelectorAll('a[href]').forEach(x => {
+                            const h = (x.getAttribute('href') || '').trim();
+                            if (!h || h === '#' || h.startsWith('#') ||
+                                h.startsWith('javascript:')) return;
+                            links.push({
+                                label: pick(x) || h.split('/').filter(Boolean).pop() || '',
+                                href: x.href
+                            });
+                        });
+                        sections.push({name: pick(a), href: '', links});
+                    } else {
+                        sections.push({name: pick(a), href: a.href || ''});
+                    }
+                }
+                return sections;
+            }""")
+    except Exception:
+        return []
+
+
 def _fuzzy_match(text, target):
     """Check if text matches target using accent-insensitive fuzzy matching.
     Returns a score (higher = better match). 0 means no match.
@@ -209,6 +303,11 @@ def _fuzzy_match(text, target):
 def _expand_accordion_menus(page):
     """Click on accordion/collapsible menu toggles to expand hidden items.
 
+    Handles both generic toggles ([data-toggle], .dropdown-toggle, collapsed
+    links) and treeview menus (AdminLTE-style ``.has-treeview`` / submenu
+    openers whose children are hidden with ``display:none``).
+    Nested sections are expanded recursively.
+
     Returns True if any menu was expanded.
     """
     expanded = False
@@ -225,6 +324,30 @@ def _expand_accordion_menus(page):
                     expanded = True
             except Exception:
                 continue
+    except Exception:
+        pass
+    # Treeviews: click every opener whose submenu is still hidden.
+    try:
+        for depth in range(3):
+            page.evaluate(
+                """() => {
+                    const list = document.querySelectorAll(
+                        'li.nav-item[a href], li[class*="treeview"] > a, ' +
+                        '#main-sidebar li.nav-item > a.nav-link');
+                    let clicked = false;
+                    for (const a of list) {
+                        const li = a.parentElement;
+                        const sub = li.querySelector(':scope > ul');
+                        if (!sub || !li.classList.contains('menu-open')) {
+                            if (a.getAttribute('aria-expanded') !== 'true') {
+                                a.click();
+                                clicked = true;
+                            }
+                            if (li.classList.contains('menu-open')) {}
+                        }
+                    }
+                }""")
+            page.wait_for_timeout(600)
     except Exception:
         pass
     return expanded
@@ -359,7 +482,7 @@ def open_screen(project, nav_path=None, module="", functionality="", url=""):
     Otherwise auto-discovers the path by scanning menus.
 
     Returns (page, session, stop) once the screen is settled, or
-    (None, None, None) if the session can't be used (e.g. 2FA pending).
+    (None, None, None) if the session can't be used.
     """
     from .browser import open_session
     session, stop = open_session()
@@ -374,11 +497,6 @@ def open_screen(project, nav_path=None, module="", functionality="", url=""):
             try_login(page, project.get("email", ""),
                       security.decrypt_value(project.get("password_enc", "")))
             browser.settle(page)
-        if project.get("auth_type") == "2fa" and \
-                page.query_selector(browser.LOGIN_SELECTORS["otp"]):
-            session.close()
-            stop()
-            return None, None, None
         auto_discovered = False
         if url:
             _log(f"open_screen: direct URL '{url}'")
@@ -724,8 +842,8 @@ def generate_steps(project, nav_path=None, module="", functionality="",
                                       module=module,
                                       functionality=functionality, url=url)
     if page is None:
-        return [], ("Authentification 2FA requise — impossible de générer "
-                    "automatiquement les étapes.")
+        return [], ("Impossible d'ouvrir l'écran — génération automatique des "
+                    "étapes indisponible.")
     try:
         return _generate_from_page(page, functionality)
     finally:
@@ -802,9 +920,10 @@ def _generate_from_page(page, functionality, suffix=None):
             {"action_type": "CLIQUEER", "target": "Ajouter",
              "value": "", "expected": "Formulaire ouvert"})
     for f in fields:
-        kind, fval = _field_value(f, suffix, entity)
-        if kind is None:
+        res = _field_value(f, suffix, entity)
+        if res is None:
             continue
+        kind, fval = res
         if kind == "check":
             create_steps.append(
                 {"action_type": "COCHER", "target": f["label"],
@@ -842,9 +961,10 @@ def _generate_from_page(page, functionality, suffix=None):
             {"action_type": "CLIQUEER", "target": "Modifier",
              "value": "", "expected": "Formulaire de modification ouvert"})
         for f in fields:
-            kind, fval = _field_value(f, suffix, entity_mod)
-            if kind is None:
+            res = _field_value(f, suffix, entity_mod)
+            if res is None:
                 continue
+            kind, fval = res
             if kind == "check":
                 edit_steps.append(
                     {"action_type": "COCHER", "target": f["label"],
@@ -915,10 +1035,10 @@ _GENERIC_MENU_WORDS = (
 _SKIP_URL_SEGMENTS = ("login", "logout", "signin", "signout", "register",
                       "inscription", "connexion", "deconnexion", "password",
                       "motdepasse", "oubli", "recovery", "forgot", "reset",
-                      "help", "aide", "documentation", "support", "settings",
-                      "parametres", "reglages", "profile", "mes", "my-account",
-                      "mon-compte", "theme", "lang", "locale", "asset",
-                      "api", "auth", "import-export")
+                      "help", "aide", "documentation", "support", "switch",
+                      "profile", "mes", "my-account", "mon-compte", "theme",
+                      "lang", "locale", "asset", "api", "auth",
+                      "import-export")
 
 # URL path segments at the END of a link that indicate an action, not a page.
 _ACTION_URL_SEGMENTS = ("new", "create", "ajouter", "edit", "modifier",
@@ -1045,6 +1165,8 @@ def _nav_links(page):
     """Visible navigation links with their (absolute) hrefs.
 
     Returns a list of dicts {label, href, tag}. href is '' for buttons.
+    Collapsed sidebar sections are harvested too (their links are present in
+    the DOM, just hidden), so discovery never misses a module or function.
     """
     items = _scan_menu_items(page)
     out = []
@@ -1057,6 +1179,19 @@ def _nav_links(page):
             continue
         seen.add(key)
         out.append({"label": lbl, "href": href, "tag": it.get("tag", "")})
+    for sec in (_sidebar_tree(page) or []):
+        if sec.get("href") and not sec.get("links"):
+            key = (_norm(sec["name"]), sec["href"])
+            if key not in seen:
+                seen.add(key)
+                out.append({"label": sec["name"], "href": sec["href"],
+                            "tag": "a"})
+        for ln in sec.get("links") or []:
+            key = (_norm(ln["label"]), ln["href"])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"label": ln["label"], "href": ln["href"], "tag": "a"})
     return out
 
 
@@ -1089,17 +1224,66 @@ def find_module_url(page, module_name, base_url=""):
 
 
 def discover_modules(page, base_url=""):
-    """Detect the application's modules from the navigation.
+    """Detect the application's modules from the navigation, generically —
+    nothing is hardcoded: everything comes from the scanned application.
 
-    Modules are grouped by the FIRST path segment of their nav links
-    (e.g. '/crm', '/ims'), so the URL always points to the module first
-    before its sub-pages. Returns a list of dicts:
-        [{"name": str, "url": str}]
+    Modules are found from the actual menu structure:
+      - Preferred: each top-level section of the sidebar tree is one module
+        (an expandable section -> its home link URL + its child links;
+        a plain top-level page -> a single-page module).
+      - Fallback: when no sidebar tree is available, modules are grouped by
+        the FIRST path segment of their navigation links.
+      - Last resort: label-only discovery.
 
-    Falls back to label-only discovery when no hrefs are available.
+    Returns a list of dicts:
+        [{"name": str, "url": str, "links": [{"label", "href"}, ...]}]
+    where ``links`` are the module's own menu children (used afterwards to
+    discover its functionalities, even when those live under a different
+    URL prefix).
     """
     _expand_accordion_menus(page)
     page.wait_for_timeout(600)
+    sections = _sidebar_tree(page)
+    if sections:
+        out = []
+        prefixes = set()
+        for sec in sections:
+            name = _clean_menu_label(sec["name"])
+            if not name:
+                continue
+            links = sec.get("links") or []
+            url = ""
+            if links:
+                url = links[0]["href"]
+                for ln in links:
+                    segs = _path_segments(ln["href"])
+                    if len(segs) == 1 and \
+                            _norm_path_segment(segs[0]) not in _SKIP_URL_SEGMENTS:
+                        url = ln["href"]
+                        break
+            else:
+                url = (sec.get("href") or "").strip()
+            url = _strip_fragment((url or "").split("?")[0])
+            if not url or not _same_host(url, base_url or url):
+                continue
+            segs = _path_segments(url)
+            if not segs or _looks_like_action_url(url):
+                continue
+            prefix = _norm_path_segment(segs[0])
+            if not prefix or prefix in _SKIP_URL_SEGMENTS or \
+                    prefix in prefixes:
+                continue
+            prefixes.add(prefix)
+            out.append({
+                "name": name,
+                "url": url,
+                "links": [{"label": ln.get("label", ""), "href": ln.get("href", "")}
+                          for ln in links if (ln.get("href") or "").strip()],
+            })
+        if out:
+            return out
+
+    # Fallback: group nav links by their first path segment.
     by_prefix = {}   # prefix -> {"name", "url"}
     has_hrefs = False
     for link in _nav_links(page):
@@ -1114,20 +1298,18 @@ def discover_modules(page, base_url=""):
         if not prefix or prefix in _SKIP_URL_SEGMENTS:
             continue
         if _GENERIC_MENU_WORDS and any(
-                prefix == _norm_path_segment(w) or prefix in _norm(w)
-                for w in _GENERIC_MENU_WORDS):
+                prefix == _norm_path_segment(w) for w in _GENERIC_MENU_WORDS):
             continue
         url = href
         if prefix not in by_prefix:
             by_prefix[prefix] = {"name": "", "url": url}
-            # a nav item whose path is exactly the prefix gives the best name
         if len(segs) == 1 and not by_prefix[prefix]["name"]:
             by_prefix[prefix]["name"] = _clean_menu_label(link["label"])
 
     out = []
     for prefix, info in by_prefix.items():
         name = info["name"] or _url_slug_to_label(info["url"]) or prefix.title()
-        out.append({"name": name.strip(), "url": info["url"]})
+        out.append({"name": name.strip(), "url": info["url"], "links": []})
 
     if not has_hrefs:
         # Last-resort: label-only discovery
@@ -1142,37 +1324,65 @@ def discover_modules(page, base_url=""):
             if _looks_like_crud_button(lbl):
                 continue
             seen.add(key)
-            out.append({"name": lbl, "url": ""})
+            out.append({"name": lbl, "url": "", "links": []})
     return out
 
 
-def discover_functionalities(page, module_url, module_label=""):
-    """Discover the functionalities of a module from the navigation and the
-    module's own page.
+def discover_functionalities(page, module_url, module_label="", module_links=None):
+    """Discover the functionalities of a module — generically, so it works on
+    any application: nothing is hardcoded, everything comes from the scan.
 
-    Only links under the module's URL prefix (same host + matching first
-    path segment, e.g. everything under /crm) count, so the dashboard and
-    other modules are ignored. Returns a list of dicts:
-        [{"name": str, "url": str}]
+    Three complementary sources feed the list:
+      1. module_links: the module's own menu children harvested from the
+         sidebar tree. They are always listed even when their URL lives
+         outside the module's path prefix.
+      2. navigation links under the module's URL prefix (catches sub-pages
+         that do not appear in the sidebar).
+      3. every anchor visible in the module home page (catches card /
+         dashboard links that navigate elsewhere).
+
+    Returns a list of dicts [{"name": str, "url": str}]. The module's own
+    home URL is never a functionality (it is scanned as the module page).
     """
     _expand_accordion_menus(page)
     page.wait_for_timeout(600)
     candidates = []
+    home_url = _strip_fragment((module_url or "").split("?")[0])
 
-    def collect(href, label=""):
+    def collect(href, label="", origin="page"):
         href = (href or "").strip()
-        if not href or not _same_host(href, module_url or href):
+        clean = _strip_fragment(href.split("?")[0])
+        if not href or not clean or clean == home_url:
             return
-        if _url_under_module(href, module_url) and not _looks_like_action_url(
-                href, module_url):
-            name = _clean_menu_label(label) or _url_slug_to_label(href) \
-                or href.rsplit("/", 1)[-1]
-            candidates.append((href, name))
+        if not _same_host(href, module_url or href):
+            return
+        if not _url_under_module(href, module_url):
+            return
+        if _looks_like_action_url(href, module_url):
+            return
+        name = _clean_menu_label(label) or _url_slug_to_label(href) \
+            or href.rsplit("/", 1)[-1]
+        candidates.append((clean, name, origin))
 
+    # 1. The module's own sidebar children (structure — regardless of prefix).
+    for ln in (module_links or []):
+        href = (ln.get("href") or "").strip()
+        clean = _strip_fragment(href.split("?")[0])
+        if not href or not clean or clean == home_url:
+            continue
+        if not _same_host(href, module_url or href):
+            continue
+        if _looks_like_action_url(clean, module_url):
+            continue
+        name = _clean_menu_label(ln.get("label") or "") \
+            or _url_slug_to_label(clean) or clean.rsplit("/", 1)[-1]
+        candidates.append((clean, name, "module"))
+
+    # 2. Navigation links under the module's URL prefix.
     for link in _nav_links(page):
-        collect(link["href"], link["label"])
+        collect(link["href"], link["label"], "nav")
 
-    # Also scan ALL visible anchors on the current page (catches links not
+    # 3. Also scan ALL visible anchors on the current page (catches links not
     # present in the persistent sidebar, e.g. cards leading to subpages).
     try:
         page.evaluate("() => { window.__scanAllHrefs = Array.from("
@@ -1182,14 +1392,28 @@ def discover_functionalities(page, module_url, module_label=""):
     except Exception:
         pass
 
-    seen = set()
-    out = []
-    for href, name in candidates:
+    _ORIGIN_RANK = {"module": 3, "nav": 2, "page": 1}
+
+    def _quality(name, origin):
+        # Prefer a menu-built label (module structure, then sidebar) over an
+        # in-page slug, then a label with real words, then the longest one.
+        name = (name or "").strip()
+        return (_ORIGIN_RANK.get(origin, 0), " " in name, len(name))
+
+    # One functionality per URL: when the same page is found through several
+    # links (sidebar + in-page cards), keep the richest label ("Tous les
+    # Clients" rather than the URL slug "clients").
+    best_name = {}
+    for href, name, origin in candidates:
         clean = _strip_fragment(href.split("?")[0])
-        key = (clean, _norm_path_segment(name))
-        if key in seen:
+        if not clean:
             continue
-        seen.add(key)
+        prev = best_name.get(clean)
+        if prev is None or _quality(name, origin) > _quality(*prev):
+            best_name[clean] = (name, origin)
+
+    out = []
+    for clean, (name, _origin) in best_name.items():
         out.append({"name": name, "url": clean})
     return out
 
@@ -1223,16 +1447,42 @@ def _goto_url(page, url):
             return False
 
 
-def _generate_for_functionality(page, module_name, fname, furl, suffix):
+def _page_is_blank(page):
+    """True when the current page is effectively blank/white: almost no text
+    and no interactive element. Such pages must never trap the scan — the
+    caller moves back to the module home and carries on."""
+    try:
+        text_len = page.evaluate(
+            "() => (document.body ? (document.body.innerText || '') "
+            ".trim().length : 0)")
+        el_count = page.evaluate(
+            "() => (document.body ? document.body.querySelectorAll("
+            "'input,button,select,textarea,a,table,img').length : 0)")
+        return text_len < 40 and el_count < 2
+    except Exception:
+        return False
+
+
+def _generate_for_functionality(page, module_name, fname, furl, suffix,
+                                control=None):
     """Generate steps for one functionality, preferring direct URL
     navigation (reliable) over menu-based auto-discovery.  When navigation
-    itself fails, the functionality is still registered with a simple
-    navigation scenario so a read-only page is never forced into a CRUD
-    workout."""
+    itself fails (or the screen renders blank), the functionality is still
+    registered with a simple navigation scenario so a read-only page is never
+    forced into a CRUD workout. The caller is responsible for moving back to
+    the module home after a blank page."""
+    if control is not None:
+        control.check()
     if furl:
         if not _goto_url(page, furl):
             _log("scan: navigation impossible vers '%s' (%s)" % (fname, furl))
             return _fallback_steps(fname)
+        if _page_is_blank(page):
+            page.wait_for_timeout(1500)
+            if _page_is_blank(page):
+                _log("scan: page blanche détectée sur '%s' (%s)" %
+                     (fname, furl))
+                return _fallback_steps(fname)
         steps, err = _generate_from_page(page, fname, suffix=suffix)
         if err:
             _log("scan: '%s' -> %s" % (fname, err))
@@ -1240,6 +1490,11 @@ def _generate_for_functionality(page, module_name, fname, furl, suffix):
         return steps
     # No direct URL: try auto-discovery by walking the module menu
     if _auto_discover_and_navigate(page, module_name, fname):
+        if _page_is_blank(page):
+            page.wait_for_timeout(1500)
+            if _page_is_blank(page):
+                _log("scan: page blanche après navigation vers '%s'" % fname)
+                return _fallback_steps(fname)
         steps, err = _generate_from_page(page, fname, suffix=suffix)
         if err:
             steps = _fallback_steps(fname)
@@ -1264,11 +1519,16 @@ def _safe_generate_from_page(page, functionality, suffix):
         return _fallback_steps(functionality), None
 
 
-def _safe_generate_functionality(page, module_name, fname, furl, suffix):
-    """Same resilience wrapper for ``_generate_for_functionality``."""
+def _safe_generate_functionality(page, module_name, fname, furl, suffix,
+                                 control=None):
     try:
+        if control is not None:
+            return _generate_for_functionality(page, module_name, fname, furl,
+                                               suffix, control=control)
         return _generate_for_functionality(page, module_name, fname, furl,
                                            suffix)
+    except ScanCancelled:
+        raise
     except Exception as e:
         _log("scan: fonctionnalité '%s' générée en secours (%s)" % (fname, e))
         return _fallback_steps(fname)
@@ -1302,7 +1562,7 @@ def _slugify(seg):
 
 
 def _scan_module_using_session(page, project, module, module_url="",
-                               nav_path=None):
+                               nav_path=None, control=None):
     """Scan ONE module in an already-open session (single browser pass).
 
     Before anything is scanned, the browser is pointed DIRECTLY at the
@@ -1319,6 +1579,8 @@ def _scan_module_using_session(page, project, module, module_url="",
       results = [{"functionality": str, "url": str, "path": str, "steps": [str]}]
       error   = None or a friendly French message (in which case results=[]).
     """
+    if control is not None:
+        control.check()
     module_name = module["name"] if isinstance(module, dict) else module
     if isinstance(module, dict):
         module_url = module.get("url") or module_url
@@ -1368,7 +1630,12 @@ def _scan_module_using_session(page, project, module, module_url="",
                     "path": "", "steps": home_steps})
 
     try:
-        fns = discover_functionalities(page, module_url, module_name)
+        module_links = module.get("links") if isinstance(module, dict) else None
+        if module_links:
+            fns = discover_functionalities(page, module_url, module_name,
+                                           module_links=module_links)
+        else:
+            fns = discover_functionalities(page, module_url, module_name)
     except Exception as e:
         _log("scan module '%s': découverte impossible (%s)" %
              (module_name, e))
@@ -1380,16 +1647,29 @@ def _scan_module_using_session(page, project, module, module_url="",
 
     total = len(fns)
     for i, f in enumerate(fns):
+        if control is not None:
+            control.check()
         _log("scan '%s' -> fonctionnalité %d/%d : '%s' (%s)" %
              (module_name, i + 1, total, f["name"], f["url"]))
         steps = _safe_generate_functionality(page, module_name, f["name"],
-                                             f["url"], suffix)
+                                             f["url"], suffix,
+                                             control=control)
+        # A screen that rendered blank must never trap the scan: go back to
+        # the project's home page (the URL configured on the project) and
+        # carry on with the next functionality.
+        if _page_is_blank(page):
+            home_url = project.get("url", "")
+            _log("scan module '%s': page blanche après '%s' — retour à la "
+                 "page d'accueil du projet (%s) pour continuer" %
+                 (module_name, f["name"], home_url or "URL du projet"))
+            if home_url:
+                _goto_url(page, home_url)
         results.append({"functionality": f["name"], "url": f["url"],
                         "path": "", "steps": steps})
     return results, None
 
 
-def scan_module(project, module, nav_path=None):
+def scan_module(project, module, nav_path=None, control=None):
     """Open the module's screen (direct URL, verified) and auto-discover its
     functionalities with their CRUD scenarios, all in one browser pass.
 
@@ -1404,11 +1684,11 @@ def scan_module(project, module, nav_path=None):
     page, session, stop = open_screen(project, nav_path=nav_path,
                                       module=module_name, functionality="")
     if page is None:
-        return [], ("Authentification 2FA requise — impossible de scanner "
-                    "le module.")
+        return [], ("Impossible d'ouvrir l'écran — scanner le module "
+                    "indisponible.")
     try:
         return _scan_module_using_session(page, project, module,
-                                          nav_path=nav_path)
+                                          nav_path=nav_path, control=control)
     finally:
         try:
             session.close()
@@ -1420,7 +1700,7 @@ def scan_module(project, module, nav_path=None):
             pass
 
 
-def scan_whole_app(project, on_module_progress=None):
+def scan_whole_app(project, on_module_progress=None, control=None):
     """Scan the whole application without any user-provided module.
 
     Opens one browser session, reads the top-level navigation to detect the
@@ -1431,11 +1711,16 @@ def scan_whole_app(project, on_module_progress=None):
     on_module_progress(module_name, func_count, total_func_count) is called
     after each module for progress reporting.
 
+    control: optional ScanControl. When the user stops the scan, ScanCancelled
+    is raised at the module boundary; no data is written for that run.
+
     Returns (modules, error):
       modules = [{"module": str, "url": str,
                   "functionalities": [{"functionality", "url", "path", "steps"}]}]
       error   = None or a friendly French message.
     """
+    if control is not None:
+        control.check()
     _log("scan_whole_app: opening session")
     from .browser import open_session
     session, stop = open_session()
@@ -1450,10 +1735,8 @@ def scan_whole_app(project, on_module_progress=None):
             try_login(page, project.get("email", ""),
                       security.decrypt_value(project.get("password_enc", "")))
             browser.settle(page)
-        if project.get("auth_type") == "2fa" and \
-                page.query_selector(browser.LOGIN_SELECTORS["otp"]):
-            return [], ("Authentification 2FA requise — impossible de "
-                        "scanner l'application.")
+        if control is not None:
+            control.check()
         modules = discover_modules(page, project.get("url", ""))
         _log("scan_whole_app: %d module(s) détecté(s)" % len(modules))
         for m in modules:
@@ -1464,11 +1747,14 @@ def scan_whole_app(project, on_module_progress=None):
         total = 0
         out = []
         for idx, m in enumerate(modules):
+            if control is not None:
+                control.check()
             _log("scan_whole_app: module %d/%d : '%s'" % (idx + 1,
                                                           len(modules),
                                                           m["name"]))
             fns, err = _scan_module_using_session(page, project, m,
-                                                  nav_path=[])
+                                                  nav_path=[],
+                                                  control=control)
             if err:
                 _log("scan_whole_app: module '%s' ignoré : %s" %
                      (m["name"], err))

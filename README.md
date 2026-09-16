@@ -43,7 +43,7 @@ sdet_app/
 ├─ security.py       # chiffrement XOR+base64 des mots de passe
 ├─ run.py            # point d'entrée : init_db + app.run (port 5000)
 ├─ sdet/
-│  ├─ browser.py     # cycle de vie Playwright, login, 2FA/OTP, monitors HTTP/JS
+│  ├─ browser.py     # cycle de vie Playwright, login, monitors HTTP/JS
 │  ├─ explorer.py    # cartographie
 │  ├─ classification.py
 │  ├─ planner.py

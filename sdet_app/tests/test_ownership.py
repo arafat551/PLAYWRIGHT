@@ -143,5 +143,6 @@ def test_reports_list_has_download_column(client, _init_db, monkeypatch):
                                {"total": 0, "passed": 0, "failed": 0,
                                 "warning": 0, "skipped": 0}, [])
     body = client.get("/reports").get_data(as_text=True)
-    assert "Téléchargement" in body
+    assert "Consulter" in body
+    assert "PDF" in body
     assert f"/reports/{tid}/download" in body
