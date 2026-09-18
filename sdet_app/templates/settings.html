@@ -22,6 +22,21 @@
 <div class="card">
     <form method="POST" class="settings-form">
         {% for key, label, ftype, help in fields %}
+        {% if key == 'report_email_enabled' %}
+        <h2 class="settings-section-title">Envoi du rapport par e-mail (SMTP)</h2>
+        <p class="text-muted text-small" style="margin:0 0 12px">
+            À la fin de chaque scénario, un résumé des statistiques (PASS / FAIL /
+            WARNING / SKIPPED) est envoyé avec le rapport en PDF en pièce jointe.
+        </p>
+        {% endif %}
+        {% if key == 'imap_user' %}
+        <h2 class="settings-section-title">Lecture des codes OTP 2FA (IMAP)</h2>
+        <p class="text-muted text-small" style="margin:0 0 12px">
+            Compte Gmail utilisé pour lire les codes de vérification envoyés par les
+            applications testées. Si laissé vide, l'utilisateur / mot de passe SMTP
+            ci-dessus sont réutilisés (serveur imap.gmail.com, port 993).
+        </p>
+        {% endif %}
         <div class="settings-row">
             <div class="settings-info">
                 <label for="{{ key }}">{{ label }}</label>
@@ -37,6 +52,8 @@
                 <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
                 {% elif ftype == 'password' %}
                 <input type="password" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" autocomplete="off">
+                {% elif key == 'report_email_recipient' %}
+                <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" style="width:520px;max-width:100%">
                 {% else %}
                 <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
                 {% endif %}

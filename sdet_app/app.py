@@ -15,7 +15,7 @@ from datetime import datetime
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify, send_file, abort)
 
-from .config import env, get_setting, apply_settings, reset_settings
+from .config import env, get_setting, apply_settings
 from . import database, security, mailer
 from .sdet import planner, engine, generator
 from .sdet.action_library import list_action_types, _human_description
@@ -1125,8 +1125,24 @@ def scenario_step_mark(tid, rid):
 @login_required
 def scenario_finish(tid):
     database.finalize_manual_run(tid)
+    _send_report_email_async(tid)
     flash("Parcours terminé. Rapport généré.", "success")
     return redirect(url_for("report_detail", tid=tid))
+
+
+def _send_report_email_async(tid):
+    """Send the e-mail report in a background thread so the request is not
+    blocked by SMTP delivery / PDF rendering."""
+    from .sdet import email_report
+
+    def _run():
+        try:
+            email_report.send_run_report(tid)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -1145,6 +1161,27 @@ SETTINGS_FIELDS = [
     ("headless", "Navigateur sans interface (headless)", "bool",
      "Activez : le navigateur s'exécute en arrière-plan, sans fenêtre visible. "
      "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement."),
+    ("otp_auto_fetch", "Récupération automatique du code OTP (2FA)", "bool",
+     "Activez : le code OTP reçu par e-mail est automatiquement saisi. "
+     "Désactivez : vous devez saisir manuellement le code dans l'interface."),
+    ("report_email_enabled", "Rapport par e-mail", "bool",
+     "Activez : à la fin de chaque scénario, un résumé des statistiques est envoyé "
+     "par e-mail avec le rapport en PDF en pièce jointe."),
+    ("report_email_recipient", "Destinataires du rapport", "text",
+     "Adresse(s) e-mail des destinataires, séparées par des virgules ou des points-virgules."),
+    ("report_email_subject", "Objet de l'e-mail", "text",
+     "Titre affiché dans la boîte de réception."),
+    ("smtp_user", "Utilisateur SMTP", "text",
+     "Votre adresse Gmail utilisée pour se connecter au serveur SMTP."),
+    ("smtp_password", "Mot de passe SMTP", "password",
+     "Mot de passe ou clé d'application du compte Gmail (serveur, port et sécurité "
+     "sont déjà configurés dans le code)."),
+    ("imap_user", "Utilisateur IMAP", "text",
+     "Adresse du compte Gmail utilisé pour lire les codes OTP (2FA). "
+     "Si laissé vide, l'utilisateur SMTP est utilisé automatiquement."),
+    ("imap_password", "Mot de passe IMAP", "password",
+     "Mot de passe ou clé d'application du compte Gmail pour la lecture IMAP. "
+     "Si laissé vide, le mot de passe SMTP est utilisé automatiquement."),
 ]
 
 SETTINGS_DEFAULTS = {
@@ -1153,7 +1190,27 @@ SETTINGS_DEFAULTS = {
     "max_forms": 30,
     "page_timeout": env.PAGE_TIMEOUT,
     "headless": env.HEADLESS,
+    "otp_auto_fetch": "1",
+    "report_email_enabled": "0",
+    "report_email_recipient": "",
+    "report_email_subject": "Rapport AUTOMATION — {projet} ({taux}%)",
+    "smtp_host": env.SMTP_HOST,
+    "smtp_port": env.SMTP_PORT,
+    "smtp_user": "",
+    "smtp_password": "",
+    "smtp_from": "",
+    "smtp_secure": env.SMTP_SECURE,
+    "imap_user": "",
+    "imap_password": "",
 }
+
+# Clés modifiables depuis l'interface (peuvent être vidées sans conséquence).
+_UI_EDITABLE_KEYS = frozenset({
+    "report_email_enabled", "report_email_recipient", "report_email_subject",
+    "smtp_host", "smtp_port", "smtp_user", "smtp_password",
+    "smtp_from", "smtp_secure",
+    "imap_user", "imap_password",
+})
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -1165,11 +1222,14 @@ def settings():
             raw = (request.form.get(key) or "").strip()
             if ftype == "bool":
                 payload[key] = "1" if raw in ("1", "true", "on", "oui") else "0"
-            elif raw:
+            elif key in _UI_EDITABLE_KEYS or raw:
                 payload[key] = raw
+        # Serveur, port et sécurité SMTP sont figés dans le code pour Gmail :
+        # non modifiables depuis l'interface ni par une requête forgée.
+        payload["smtp_host"] = env.SMTP_HOST
+        payload["smtp_port"] = str(env.SMTP_PORT)
+        payload["smtp_secure"] = env.SMTP_SECURE
         apply_settings(payload)
-        reset_settings(("smtp_host", "smtp_port", "smtp_user", "smtp_password",
-                        "smtp_from", "smtp_secure"))
         flash("Paramètres enregistrés", "success")
         return redirect(url_for("settings"))
 
@@ -1192,7 +1252,7 @@ def test_view(tid):
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
     progress = None
-    if test.status == "running":
+    if test.status in ("running", "waiting_otp", "otp_submitted"):
         progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
@@ -1201,6 +1261,18 @@ def test_view(tid):
     else:
         template = "test_run.html"
     return render_template(template, test=test, results=results, progress=progress)
+
+
+@app.route("/tests/<int:tid>/otp", methods=["POST"])
+@login_required
+def test_otp(tid):
+    code = request.form.get("otp_code", "").strip()
+    if not code:
+        flash("Veuillez saisir le code OTP", "error")
+        return redirect(url_for("test_view", tid=tid))
+    database.submit_otp(tid, code)
+    flash("Code OTP envoyé", "success")
+    return redirect(url_for("test_view", tid=tid))
 
 
 @app.route("/tests/<int:tid>/cancel", methods=["POST"])
@@ -1242,6 +1314,7 @@ def report_detail(tid):
     except ValueError:
         duration = 0
     report = rep.build_report({"name": getattr(test, "project_name", ""),
+                               "url": getattr(test, "project_url", ""),
                                "environment": getattr(test, "project_env", "")},
                               {"started_at": test.started_at, "launched_by": test.launched_by,
                                "run_type": test.run_type, "id": test.id},
@@ -1264,6 +1337,7 @@ def report_download(tid):
     counters = rep.counters_from_results(results_dicts)
     report = rep.build_report(
         {"name": getattr(test, "project_name", ""),
+         "url": getattr(test, "project_url", ""),
          "environment": getattr(test, "project_env", "")},
         {"started_at": test.started_at, "launched_by": test.launched_by,
          "run_type": test.run_type, "id": test.id},
@@ -1282,34 +1356,10 @@ def report_download(tid):
 
 def _render_report_pdf(html, tid):
     """Convert a report HTML document into A4 PDF bytes using headless
-    Chromium (via Playwright). The HTML file is written inside REPORT_DIR so
-    the relative '../static/...' screenshot links still resolve."""
-    import json as _json
-    os.makedirs(env.REPORT_DIR, exist_ok=True)
-    base = os.path.join(env.REPORT_DIR, f"_pdf_{tid}")
-    tmp_html = base + ".html"
-    pdf_path = base + ".pdf"
-    try:
-        with open(tmp_html, "w", encoding="utf-8") as f:
-            f.write(html)
-        from pathlib import Path
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            page.goto(Path(tmp_html).as_uri(), wait_until="load")
-            page.pdf(path=pdf_path, format="A4", print_background=True,
-                     margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
-            browser.close()
-        with open(pdf_path, "rb") as f:
-            return f.read()
-    finally:
-        for fp in (tmp_html, pdf_path):
-            try:
-                if os.path.exists(fp):
-                    os.remove(fp)
-            except OSError:
-                pass
+    Chromium (via Playwright). Delegates to sdet.email_report so both the
+    download route and the automatic e-mail report share the same renderer."""
+    from .sdet import email_report
+    return email_report.render_report_pdf(html)
 
 
 # ---------------------------------------------------------------------------
@@ -1566,7 +1616,7 @@ def _validate_project(data, editing=False):
         errors.append("Le nom du projet est obligatoire")
     if not data["url"] or not data["url"].startswith("http"):
         errors.append("Une URL valide (http/https) est obligatoire")
-    if data["auth_type"] not in ("none", "simple"):
+    if data["auth_type"] not in ("none", "simple", "2fa"):
         errors.append("Type d'authentification invalide")
     if data["environment"] not in ("STAGING", "PRODUCTION"):
         errors.append("Environnement invalide")

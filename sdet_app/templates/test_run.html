@@ -13,7 +13,7 @@
     </div>
     <div class="run-actions">
         <a class="btn-secondary" href="{{ url_for('project_detail', pid=test.project_id) }}">Retour au projet</a>
-{% if test.status in ('running','exploring','cancel_requested') %}
+{% if test.status in ('running','exploring','waiting_otp','otp_submitted','cancel_requested') %}
         <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
             <button class="btn-stop">Arrêter le test</button>
         </form>
@@ -40,6 +40,19 @@
             <div class="progress-fill" style="width:{{ progress[2] }}%"></div>
         </div>
     </div>
+</div>
+{% endif %}
+
+{% if test.status == 'waiting_otp' %}
+<div class="card" style="margin-top:1rem;border:2px solid #6366f1">
+    <h2 style="margin-top:0;color:#4f46e5">Code OTP requis (2FA)</h2>
+    <p class="text-muted">L'application attend un code de vérification à 6 chiffres envoyé par e-mail. Saisissez-le ci-dessous ou vérifiez que l'accès IMAP est configuré dans <a href="{{ url_for('settings') }}">Paramètres</a>.</p>
+    <form method="POST" action="{{ url_for('test_otp', tid=test.id) }}" style="display:flex;gap:10px;align-items:center;margin-top:14px">
+        <input type="text" name="otp_code" required maxlength="12" pattern="\d{4,12}"
+               placeholder="Ex : 483927" autocomplete="one-time-code"
+               style="width:200px;padding:10px 14px;font-size:1.15rem;letter-spacing:3px;font-family:monospace;border:2px solid #e2e8f0;border-radius:8px">
+        <button type="submit" class="btn-primary">Valider le code</button>
+    </form>
 </div>
 {% endif %}
 
@@ -103,7 +116,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-{% if test.status in ('running','exploring','cancel_requested') %}
+{% if test.status in ('running','exploring','waiting_otp','otp_submitted','cancel_requested') %}
 setInterval(()=>{ location.reload(); }, 3000);
 {% elif test.status in ('completed','failed','cancelled') %}
 window.location.replace("{{ url_for('report_detail', tid=test.id) }}");

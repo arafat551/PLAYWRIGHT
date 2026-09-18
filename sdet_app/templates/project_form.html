@@ -31,6 +31,7 @@
         <select name="auth_type">
             <option value="simple" {{ 'selected' if project and project.auth_type=='simple' else '' }}>Simple</option>
             <option value="none" {{ 'selected' if project and project.auth_type=='none' else '' }}>Aucune</option>
+            <option value="2fa" {{ 'selected' if project and project.auth_type=='2fa' else '' }}>2FA / OTP</option>
         </select>
 
         <label>Environnement</label>

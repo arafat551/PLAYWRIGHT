@@ -12,7 +12,7 @@ import re
 import json
 
 from ..config import env, setting_int
-from .browser import has_login_form, try_login
+from .browser import has_login_form
 from .classification import (ICON_LABELS, normalize,
                              CREATE_HINTS, DELETE_HINTS, UPDATE_HINTS,
                              SEARCH_HINTS, STATUS_HINTS, READ_HINTS)
@@ -953,13 +953,9 @@ def explore(session, project, on_progress=None, is_cancelled=None):
     project: dict-ish with url/email/password_enc/auth_type/environment/comments
     """
     from urllib.parse import urlparse
-    from .. import security
 
     page = session.page
     start_url = project["url"]
-    email = project.get("email", "")
-    password = security.decrypt_value(project.get("password_enc", ""))
-    auth_type = project.get("auth_type", "simple")
     base_netloc = urlparse(start_url).netloc
 
     found = {}
@@ -974,11 +970,17 @@ def explore(session, project, on_progress=None, is_cancelled=None):
     try:
         session.goto(start_url)
         settle(page)
-        if has_login_form(page):
-            try_login(page, email, password)
-            settle(page)
     except Exception as e:
         raise RuntimeError(f"Exploration - impossible de charger l'URL: {e}")
+
+    # L'authentification (login simple / OTP 2FA) est gérée par le moteur
+    # avant l'exploration. Si un formulaire de connexion est encore présent,
+    # la session n'est pas authentifiée : on refuse de scanner cet écran.
+    if str(project.get("auth_type", "")).lower() != "none" and has_login_form(page):
+        raise RuntimeError(
+            "Exploration - session non authentifiée : formulaire de connexion "
+            "encore présent. Vérifiez l'authentification du projet "
+            "(email / mot de passe / code OTP).")
 
     while to_visit and len(visited) < setting_int("max_pages", env.MAX_PAGES):
         if cancelled():

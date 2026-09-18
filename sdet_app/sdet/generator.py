@@ -16,9 +16,7 @@ import re
 import threading
 import time
 
-from .. import security
 from . import browser
-from .browser import has_login_form, try_login
 from .forms import _field_type, _label_for_field, _required, _tag, find_form
 
 
@@ -493,10 +491,13 @@ def open_screen(project, nav_path=None, module="", functionality="", url=""):
         except Exception:
             session.goto(project["url"], wait_until="commit", timeout=60000)
         browser.settle(page)
-        if project.get("auth_type", "none") != "none" and has_login_form(page):
-            try_login(page, project.get("email", ""),
-                      security.decrypt_value(project.get("password_enc", "")))
-            browser.settle(page)
+        # Authentification unique (login + OTP 2FA) avant tout scan.
+        if not browser.authenticate(page, project):
+            raise RuntimeError(
+                "Authentification impossible : le code OTP (2FA) n'a pas pu "
+                "être récupéré automatiquement dans la boîte mail. Vérifiez "
+                "la configuration IMAP du projet ou désactivez la "
+                "récupération automatique pour saisir le code manuellement.")
         auto_discovered = False
         if url:
             _log(f"open_screen: direct URL '{url}'")
@@ -1731,10 +1732,13 @@ def scan_whole_app(project, on_module_progress=None, control=None):
         except Exception:
             session.goto(project["url"], wait_until="commit", timeout=60000)
         browser.settle(page)
-        if project.get("auth_type", "none") != "none" and has_login_form(page):
-            try_login(page, project.get("email", ""),
-                      security.decrypt_value(project.get("password_enc", "")))
-            browser.settle(page)
+        # Authentification unique (login + OTP 2FA) avant tout scan.
+        if not browser.authenticate(page, project):
+            return [], (
+                "Authentification impossible : le code OTP (2FA) n'a pas pu "
+                "être récupéré automatiquement dans la boîte mail. Vérifiez "
+                "la configuration IMAP du projet ou désactivez la "
+                "récupération automatique pour saisir le code manuellement.")
         if control is not None:
             control.check()
         modules = discover_modules(page, project.get("url", ""))
