@@ -58,7 +58,6 @@
           <div class="freq-preset"><input type="radio" name="interval_minutes" value="120" id="f120"><label for="f120">2 heures</label></div>
           <div class="freq-preset"><input type="radio" name="interval_minutes" value="240" id="f240"><label for="f240">4 heures</label></div>
           <div class="freq-preset"><input type="radio" name="interval_minutes" value="480" id="f480"><label for="f480">8 heures</label></div>
-          <div class="freq-preset"><input type="radio" name="interval_minutes" value="10080" id="fweek"><label for="fweek">1x / semaine</label></div>
         </div>
       </div>
 
@@ -115,8 +114,6 @@
               Toutes les {{ r.interval_minutes }} min
             {% elif r.interval_minutes <= 480 %}
               Toutes les {{ (r.interval_minutes / 60)|round(0)|int }}h
-            {% elif r.interval_minutes == 10080 %}
-              1x / semaine
             {% else %}
               Toutes les {{ r.interval_minutes }} min
             {% endif %}
