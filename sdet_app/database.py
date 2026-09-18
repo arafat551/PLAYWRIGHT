@@ -156,6 +156,18 @@ CREATE TABLE IF NOT EXISTS outbox (
     body_html TEXT DEFAULT '',
     sent_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    interval_minutes INTEGER DEFAULT 60,
+    time_of_day TEXT DEFAULT '08:00',
+    day_of_week TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    last_run_at TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
 """
 
 
@@ -247,6 +259,14 @@ def init_db(path=None):
             "WHERE owner_id IS NULL",
             (adm["id"],))
         db.commit()
+
+    # Migration: scheduled_runs — add interval_minutes, day_of_week
+    if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_runs'").fetchone():
+        scols = [r[1] for r in db.execute("PRAGMA table_info(scheduled_runs)").fetchall()]
+        if "interval_minutes" not in scols:
+            db.execute("ALTER TABLE scheduled_runs ADD COLUMN interval_minutes INTEGER DEFAULT 60")
+        if "day_of_week" not in scols:
+            db.execute("ALTER TABLE scheduled_runs ADD COLUMN day_of_week TEXT DEFAULT ''")
 
     db.close()
     return True
@@ -439,6 +459,132 @@ def count_admins():
     n = db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
     db.close()
     return n
+
+
+# ---------------------------------------------------------------------------
+# Scheduled runs (auto-execution of scenarios)
+# ---------------------------------------------------------------------------
+
+def list_scheduled_runs(owner_id=None):
+    db = get_connection()
+    if owner_id:
+        rows = db.execute(
+            "SELECT s.*, p.name as project_name FROM scheduled_runs s "
+            "JOIN projects p ON s.project_id=p.id "
+            "WHERE p.owner_id=? ORDER BY s.id", (owner_id,)).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT s.*, p.name as project_name FROM scheduled_runs s "
+            "JOIN projects p ON s.project_id=p.id ORDER BY s.id").fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+def get_scheduled_run(sid):
+    db = get_connection()
+    row = db.execute("SELECT * FROM scheduled_runs WHERE id=?", (sid,)).fetchone()
+    db.close()
+    return dict(row) if row else None
+
+
+def create_scheduled_run(project_id, interval_minutes=60, time_of_day="08:00",
+                         day_of_week=""):
+    db = get_connection()
+    cur = db.execute(
+        "INSERT INTO scheduled_runs (project_id, interval_minutes, time_of_day, day_of_week) "
+        "VALUES (?, ?, ?, ?)",
+        (project_id, interval_minutes, time_of_day, day_of_week))
+    db.commit()
+    sid = cur.lastrowid
+    db.close()
+    return sid
+
+
+def update_scheduled_run(sid, **kwargs):
+    db = get_connection()
+    allowed = {"interval_minutes", "time_of_day", "is_active", "day_of_week"}
+    sets = []
+    vals = []
+    for k, v in kwargs.items():
+        if k in allowed:
+            sets.append(f"{k}=?")
+            vals.append(v)
+    if sets:
+        vals.append(sid)
+        db.execute(f"UPDATE scheduled_runs SET {', '.join(sets)} WHERE id=?", vals)
+        db.commit()
+    db.close()
+
+
+def delete_scheduled_run(sid):
+    db = get_connection()
+    db.execute("DELETE FROM scheduled_runs WHERE id=?", (sid,))
+    db.commit()
+    db.close()
+
+
+def mark_scheduled_run_done(sid):
+    db = get_connection()
+    db.execute(
+        "UPDATE scheduled_runs SET last_run_at=datetime('now') WHERE id=?", (sid,))
+    db.commit()
+    db.close()
+
+
+def get_due_scheduled_runs():
+    """Return scheduled runs that are due based on interval_minutes and last_run_at."""
+    db = get_connection()
+    rows = db.execute(
+        "SELECT s.*, p.name as project_name, p.status as project_status "
+        "FROM scheduled_runs s "
+        "JOIN projects p ON s.project_id=p.id "
+        "WHERE s.is_active=1 AND p.status='active'").fetchall()
+    due = []
+    now = datetime.now()
+    weekday = now.weekday()  # 0=Monday .. 6=Sunday
+    _DAY_NAMES = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+    for r in rows:
+        d = dict(r)
+        last = d.get("last_run_at")
+        interval = d.get("interval_minutes") or 60
+        tod = d.get("time_of_day", "08:00")
+        day_of_week = (d.get("day_of_week") or "").strip().lower()
+        try:
+            th, tm = map(int, tod.split(":"))
+        except (ValueError, AttributeError):
+            th, tm = 8, 0
+
+        # 1) Interval mode: run every N minutes
+        if interval > 0 and interval <= 1440:  # up to 24h
+            if not last:
+                due.append(d)
+            else:
+                try:
+                    lr = datetime.fromisoformat(last)
+                    elapsed = (now - lr).total_seconds()
+                    if elapsed >= interval * 60 - 30:  # -30s tolerance
+                        due.append(d)
+                except (ValueError, TypeError):
+                    due.append(d)
+
+        # 2) Day-specific mode: run on selected days at time_of_day
+        elif interval > 1440 or day_of_week:
+            today_name = _DAY_NAMES[weekday]
+            selected_days = [x.strip() for x in day_of_week.split(",") if x.strip()]
+            if today_name in selected_days:
+                if now.hour > th or (now.hour == th and now.minute >= tm):
+                    if not last:
+                        due.append(d)
+                    else:
+                        try:
+                            lr = datetime.fromisoformat(last)
+                            if lr.date() != now.date():
+                                due.append(d)
+                        except (ValueError, TypeError):
+                            due.append(d)
+
+    db.close()
+    return due
 
 
 # ---------------------------------------------------------------------------

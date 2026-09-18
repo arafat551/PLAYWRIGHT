@@ -36,7 +36,7 @@
 {% if test.status == 'waiting_otp' %}
 <div class="card" style="margin:1rem 0;border:2px solid #6366f1">
     <h2 style="margin-top:0;color:#4f46e5">Code OTP requis (2FA)</h2>
-    <p class="text-muted">L'application attend un code de vérification à 6 chiffres envoyé par e-mail. Saisissez-le ci-dessous ou vérifiez que l'accès IMAP est configuré dans <a href="{{ url_for('settings') }}">Paramètres</a>.</p>
+    <p class="text-muted">L'application attend un code de vérification à 6 chiffres envoyé par e-mail. Saisissez-le ci-dessous.</p>
     <form method="POST" action="{{ url_for('test_otp', tid=test.id) }}" style="display:flex;gap:10px;align-items:center;margin-top:14px">
         <input type="text" name="otp_code" required maxlength="12" pattern="\d{4,12}"
                placeholder="Ex : 483927" autocomplete="one-time-code"

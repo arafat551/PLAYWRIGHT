@@ -408,7 +408,7 @@ main.with-sidebar {
 label { display: block; margin: 1.1rem 0 0.35rem; font-weight: 600; font-size: 0.84rem; color: var(--text-2); }
 
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
-input[type="number"], select, textarea {
+input[type="number"], input[type="time"], input[type="date"], select, textarea {
   width: 100%;
   padding: 0.6rem 0.8rem;
   border: 1px solid var(--border-strong);
@@ -422,7 +422,8 @@ input[type="number"], select, textarea {
 input::placeholder, textarea::placeholder { color: #a6adbc; }
 
 input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus,
-input[type="url"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
+input[type="url"]:focus, input[type="number"]:focus, input[type="time"]:focus,
+input[type="date"]:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
