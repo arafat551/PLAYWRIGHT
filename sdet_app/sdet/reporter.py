@@ -60,6 +60,7 @@ def build_report(project, test_run, results, counters, duration):
     modules = group_by_module(results)
     return {
         "project": project.get("name", ""),
+        "project_url": (project.get("url") or "").strip(),
         "environment": project.get("environment", ""),
         "date": (test_run.get("started_at") or datetime.now().isoformat()),
         "launched_by": test_run.get("launched_by", ""),
@@ -176,6 +177,10 @@ def render_html(report, report_path=None):
 
     # Lightbox JSON data
     shots_json = _json.dumps(all_shots, ensure_ascii=False)
+
+    project_url = (report.get("project_url") or "").strip()
+    url_line = (f'<p><b>URL :</b> <a href="{project_url}">{project_url}</a></p>'
+                if project_url else "")
 
     html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -317,6 +322,7 @@ h2{{font-size:1.15rem;font-weight:700;margin:1.4rem 0 .7rem}}
   <div>
     <p><b>Projet :</b> {report['project']} &nbsp; <b>Environnement :</b> {report['environment']} &nbsp; <b>Type :</b> {report['run_type']}</p>
     <p><b>Date :</b> {report['date']} &nbsp; <b>Lancé par :</b> {report['launched_by']} &nbsp; <b>Durée :</b> {report['duration']}</p>
+    {url_line}
   </div>
   <div style="display:flex;flex-direction:column;align-items:center;gap:.4rem">
     <div class="score-circle {pct_cls}">{pct}%</div>

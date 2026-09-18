@@ -22,6 +22,13 @@
 <div class="card">
     <form method="POST" class="settings-form">
         {% for key, label, ftype, help in fields %}
+        {% if key == 'report_email_enabled' %}
+        <h2 class="settings-section-title">Envoi du rapport par e-mail (SMTP)</h2>
+        <p class="text-muted text-small" style="margin:0 0 12px">
+            À la fin de chaque scénario, un résumé des statistiques (PASS / FAIL /
+            WARNING / SKIPPED) est envoyé avec le rapport en PDF en pièce jointe.
+        </p>
+        {% endif %}
         <div class="settings-row">
             <div class="settings-info">
                 <label for="{{ key }}">{{ label }}</label>
@@ -37,6 +44,8 @@
                 <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
                 {% elif ftype == 'password' %}
                 <input type="password" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" autocomplete="off">
+                {% elif key == 'report_email_recipient' %}
+                <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" style="width:520px;max-width:100%">
                 {% else %}
                 <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
                 {% endif %}

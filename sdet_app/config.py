@@ -41,6 +41,16 @@ class Config:
     # Strictness default severity
     DEFAULT_FAIL_SEVERITY = "MAJOR"
 
+    # ------------------------------------------------------------------
+    # SMTP — serveur, port et sécurité sont FIGÉS dans le code pour Gmail
+    # afin que le QA ne puisse pas les casser dans l'interface. Seuls les
+    # identifiants (utilisateur, mot de passe, expéditeur) se règlent dans
+    # Paramètres.
+    # ------------------------------------------------------------------
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT = _int("SMTP_PORT", 587)
+    SMTP_SECURE = os.getenv("SMTP_SECURE", "tls").lower()  # tls (587) | ssl (465)
+
 
 class Env:
     """Convenient accessor so other modules do not import Config's static class

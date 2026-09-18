@@ -111,6 +111,7 @@ def run_test(tid, pid, plan):
     session = None
     stop = None
     start = time.time()
+    final_status = None
     try:
         session, stop = open_session()
         page = session.page
@@ -157,6 +158,12 @@ def run_test(tid, pid, plan):
                 stop()
             except Exception:
                 pass
+    if final_status == "completed":
+        try:
+            from .email_report import send_run_report
+            send_run_report(tid)
+        except Exception as e:
+            _log(f"Envoi du rapport par e-mail impossible: {e}")
 
 
 def _run_impl(session, project, tid, plan, is_cancelled=None):
