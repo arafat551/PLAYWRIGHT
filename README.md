@@ -51,6 +51,7 @@ sdet_app/
 │  ├─ runner.py
 │  ├─ verifier.py
 │  ├─ reporter.py
+│  ├─ mailbox.py     # lecture IMAP + extraction du code OTP (2FA)
 │  ├─ ai.py          # assistance OpenAI optionnelle
 │  └─ engine.py      # orchestration des pipelines
 ├─ templates/  static/css  static/js
@@ -72,6 +73,23 @@ PAGE_TIMEOUT=30000
 HEADLESS=true
 ```
 
+## Authentification 2FA / OTP
+
+Pour un projet dont le type d'authentification est **2FA / OTP**, le moteur
+détecte le champ de code après le login :
+
+1. **Récupération automatique** : le code de vérification à 6 chiffres est lu
+   dans la boîte mail (IMAP Gmail, `imap.gmail.com:993`) et saisi
+   automatiquement. Les identifiants sont réglés dans *Paramètres*
+   (`imap_user` / `imap_password`) ; s'ils sont vides, l'utilisateur et le mot
+   de passe **SMTP** sont réutilisés (même compte Gmail).
+2. **Saisie manuelle de secours** : si l'e-mail est introuvable ou l'IMAP non
+   configuré, le run passe en `waiting_otp` et l'opérateur saisit le code dans
+   l'interface (le navigateur reste ouvert).
+
+Activez / désactivez la récupération automatique dans *Paramètres* via le
+curseur `otp_auto_fetch`.
+
 ## Démarrage
 
 ```bash
@@ -83,7 +101,7 @@ python sdet_app/run.py          # http://localhost:5000
 ## Tests
 
 ```bash
-python -m pytest -q              # 23 tests (auth, classification, planner, report)
+python -m pytest -q              # 28 tests (auth, 2FA/OTP, classification, planner, report)
 ```
 
 Les tests ne touchent pas la base réelle : `conftest.py` redirige

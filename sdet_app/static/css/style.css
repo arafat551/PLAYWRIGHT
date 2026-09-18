@@ -646,6 +646,8 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .badge-exploring { background: var(--violet-050); color: #6d28d9; }
 .badge-explored { background: var(--success-050); color: #047857; }
 .badge-cancel_requested { background: var(--warning-050); color: var(--warning-600); }
+.badge-waiting_otp { background: var(--violet-050); color: #6d28d9; }
+.badge-otp_submitted { background: var(--info-050); color: #1d4ed8; }
 .badge-failed { background: var(--danger-050); color: var(--danger-600); }
 .badge-cancelled { background: #f1f5f9; color: #475569; }
 .badge-error { background: var(--danger-050); color: var(--danger-600); }
@@ -681,6 +683,8 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 .status-dot.exploring { background: var(--violet); animation: pulse 1.4s infinite; }
 .status-dot.explored { background: #10b981; }
 .status-dot.cancel_requested { background: var(--warning); animation: pulse 1.4s infinite; }
+.status-dot.waiting_otp { background: var(--violet); animation: pulse 1.4s infinite; }
+.status-dot.otp_submitted { background: var(--brand); animation: pulse 1.4s infinite; }
 .status-dot.cancelled { background: #9ca3af; }
 
 @keyframes pulse {

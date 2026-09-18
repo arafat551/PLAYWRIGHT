@@ -5,9 +5,9 @@ import os
 import time
 from datetime import datetime
 
-from .. import database, security
+from .. import database
 from . import browser, explorer, planner, reporter
-from .browser import open_session, has_login_form, try_login
+from .browser import open_session
 
 
 def _log(msg):
@@ -28,6 +28,42 @@ def _project_dict(pid):
 
 def _is_cancelled(tid):
     return database.test_status(tid) in ("cancel_requested",)
+
+
+def _authenticate(session, project, tid):
+    """Authentifier la session en une seule étape (login simple ou 2FA) puis
+    récupérer le code OTP automatiquement quand la page l'exige.
+
+    1. browser.authenticate : login + code OTP lu dans la boîte mail (IMAP).
+    2. Si le code n'a pas pu être récupéré automatiquement, on passe le run en
+       'waiting_otp' pour que l'opérateur le saisisse dans l'interface (l'ancien
+       comportement), sans fermer le navigateur.
+
+    Retourne True pour continuer le run, False si le run a été annulé.
+    """
+    from .browser import authenticate, fill_otp_code
+
+    if authenticate(session.page, project):
+        return True
+
+    database.set_waiting_otp(tid)
+    while True:
+        time.sleep(2)
+        status = database.test_status(tid)
+        if status == "otp_submitted":
+            try:
+                row = database.get_test_run(tid)
+                code = getattr(row, "otp_code", "") or ""
+                if code:
+                    fill_otp_code(session.page, code)
+                    browser.settle(session.page)
+            except Exception as e:
+                _log(f"OTP manuel: {e}")
+            return True
+        if status == "cancel_requested":
+            session.close()
+            database.finalize_test_run(tid, "cancelled", _zero(), [])
+            return False
 
 
 def run_exploration(tid, pid):
@@ -58,11 +94,10 @@ def run_exploration(tid, pid):
             else:
                 raise RuntimeError(f"Exploration - impossible de charger l'URL: {e}")
 
-        # Login
-        if project.get("auth_type") != "none" and has_login_form(page):
-            try_login(page, project.get("email", ""),
-                      security.decrypt_value(project.get("password_enc", "")))
-            browser.settle(page)
+        # Authentification unique (login simple/2FA + OTP automatique),
+        # sinon saisie manuelle du code dans l'interface.
+        if not _authenticate(session, project, tid):
+            return
 
         def progress(n):
             database.set_running_total(tid, n)
@@ -131,10 +166,10 @@ def run_test(tid, pid, plan):
             else:
                 raise RuntimeError(f"Test - impossible de charger l'URL: {e}")
 
-        if project.get("auth_type") != "none" and has_login_form(page):
-            try_login(page, project.get("email", ""),
-                      security.decrypt_value(project.get("password_enc", "")))
-            browser.settle(page)
+        # Authentification unique (login simple/2FA + OTP automatique),
+        # sinon saisie manuelle du code dans l'interface.
+        if not _authenticate(session, project, tid):
+            return
 
         counters, results = _run_impl(session, project, tid, plan,
                                       is_cancelled=lambda: _is_cancelled(tid))

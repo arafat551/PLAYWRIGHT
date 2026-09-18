@@ -27,6 +27,40 @@ def test_project_creation(client):
     assert "MonApp" in r.get_data(as_text=True)
 
 
+def test_project_creation_with_2fa(client):
+    """Un projet avec authentification 2FA / OTP doit pouvoir être créé."""
+    from sdet_app import database
+    client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
+    r = client.post("/projects/new", data={
+        "name": "App2FA", "url": "https://app2fa.test", "email": "a@b.test",
+        "password": "pw", "auth_type": "2fa", "environment": "STAGING",
+        "comments": ""}, follow_redirects=True)
+    assert r.status_code == 200
+    assert "App2FA" in r.get_data(as_text=True)
+    proj = [p for p in database.list_projects() if p["name"] == "App2FA"][0]
+    assert proj["auth_type"] == "2fa"
+    client.post("/projects/{}/delete".format(proj["id"]))
+
+
+def test_otp_route_submits_code_and_waits(client):
+    """Le code OTP saisi dans l'interface doit être enregistré (waiting_otp)."""
+    from sdet_app import database
+    client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
+    pid = database.create_project(
+        {"name": "Kpip2FA", "url": "https://kpip2fa.test", "email": "a@b.test",
+         "password": "pw", "auth_type": "2fa", "environment": "STAGING",
+         "comments": ""}, "admin@example.com", encrypt=lambda s: s)
+    tid = database.create_test_run(pid, "Exploration", "admin@example.com")
+    database.set_waiting_otp(tid)
+
+    r = client.post("/tests/{}/otp".format(tid), data={"otp_code": "123456"})
+    assert r.status_code == 302
+    assert database.test_status(tid) == "otp_submitted"
+    assert (database.get_test_run(tid).otp_code or "") == "123456"
+    database.delete_project(pid)
+    database.delete_test_run(tid)
+
+
 def test_project_validation_required(client):
     client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
     r = client.post("/projects/new", data={"name": "", "url": "not-a-url"},

@@ -1161,6 +1161,9 @@ SETTINGS_FIELDS = [
     ("headless", "Navigateur sans interface (headless)", "bool",
      "Activez : le navigateur s'exécute en arrière-plan, sans fenêtre visible. "
      "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement."),
+    ("otp_auto_fetch", "Récupération automatique du code OTP (2FA)", "bool",
+     "Activez : le code OTP reçu par e-mail est automatiquement saisi. "
+     "Désactivez : vous devez saisir manuellement le code dans l'interface."),
     ("report_email_enabled", "Rapport par e-mail", "bool",
      "Activez : à la fin de chaque scénario, un résumé des statistiques est envoyé "
      "par e-mail avec le rapport en PDF en pièce jointe."),
@@ -1173,6 +1176,12 @@ SETTINGS_FIELDS = [
     ("smtp_password", "Mot de passe SMTP", "password",
      "Mot de passe ou clé d'application du compte Gmail (serveur, port et sécurité "
      "sont déjà configurés dans le code)."),
+    ("imap_user", "Utilisateur IMAP", "text",
+     "Adresse du compte Gmail utilisé pour lire les codes OTP (2FA). "
+     "Si laissé vide, l'utilisateur SMTP est utilisé automatiquement."),
+    ("imap_password", "Mot de passe IMAP", "password",
+     "Mot de passe ou clé d'application du compte Gmail pour la lecture IMAP. "
+     "Si laissé vide, le mot de passe SMTP est utilisé automatiquement."),
 ]
 
 SETTINGS_DEFAULTS = {
@@ -1181,6 +1190,7 @@ SETTINGS_DEFAULTS = {
     "max_forms": 30,
     "page_timeout": env.PAGE_TIMEOUT,
     "headless": env.HEADLESS,
+    "otp_auto_fetch": "1",
     "report_email_enabled": "0",
     "report_email_recipient": "",
     "report_email_subject": "Rapport AUTOMATION — {projet} ({taux}%)",
@@ -1190,6 +1200,8 @@ SETTINGS_DEFAULTS = {
     "smtp_password": "",
     "smtp_from": "",
     "smtp_secure": env.SMTP_SECURE,
+    "imap_user": "",
+    "imap_password": "",
 }
 
 # Clés modifiables depuis l'interface (peuvent être vidées sans conséquence).
@@ -1197,6 +1209,7 @@ _UI_EDITABLE_KEYS = frozenset({
     "report_email_enabled", "report_email_recipient", "report_email_subject",
     "smtp_host", "smtp_port", "smtp_user", "smtp_password",
     "smtp_from", "smtp_secure",
+    "imap_user", "imap_password",
 })
 
 
@@ -1239,7 +1252,7 @@ def test_view(tid):
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
     progress = None
-    if test.status == "running":
+    if test.status in ("running", "waiting_otp", "otp_submitted"):
         progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
@@ -1248,6 +1261,18 @@ def test_view(tid):
     else:
         template = "test_run.html"
     return render_template(template, test=test, results=results, progress=progress)
+
+
+@app.route("/tests/<int:tid>/otp", methods=["POST"])
+@login_required
+def test_otp(tid):
+    code = request.form.get("otp_code", "").strip()
+    if not code:
+        flash("Veuillez saisir le code OTP", "error")
+        return redirect(url_for("test_view", tid=tid))
+    database.submit_otp(tid, code)
+    flash("Code OTP envoyé", "success")
+    return redirect(url_for("test_view", tid=tid))
 
 
 @app.route("/tests/<int:tid>/cancel", methods=["POST"])
@@ -1591,7 +1616,7 @@ def _validate_project(data, editing=False):
         errors.append("Le nom du projet est obligatoire")
     if not data["url"] or not data["url"].startswith("http"):
         errors.append("Une URL valide (http/https) est obligatoire")
-    if data["auth_type"] not in ("none", "simple"):
+    if data["auth_type"] not in ("none", "simple", "2fa"):
         errors.append("Type d'authentification invalide")
     if data["environment"] not in ("STAGING", "PRODUCTION"):
         errors.append("Environnement invalide")

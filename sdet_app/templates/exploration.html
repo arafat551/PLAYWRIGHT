@@ -29,6 +29,19 @@
     <span>Pages découvertes : {{ test.total }}</span>
 </div>
 
+{% if test.status == 'waiting_otp' %}
+<div class="card" style="margin-top:1rem;border:2px solid #6366f1">
+    <h2 style="margin-top:0;color:#4f46e5">Code OTP requis (2FA)</h2>
+    <p class="text-muted">L'application attend un code de vérification à 6 chiffres envoyé par e-mail. Saisissez-le ci-dessous ou vérifiez que l'accès IMAP est configuré dans <a href="{{ url_for('settings') }}">Paramètres</a>.</p>
+    <form method="POST" action="{{ url_for('test_otp', tid=test.id) }}" style="display:flex;gap:10px;align-items:center;margin-top:14px">
+        <input type="text" name="otp_code" required maxlength="12" pattern="\d{4,12}"
+               placeholder="Ex : 483927" autocomplete="one-time-code"
+               style="width:200px;padding:10px 14px;font-size:1.15rem;letter-spacing:3px;font-family:monospace;border:2px solid #e2e8f0;border-radius:8px">
+        <button type="submit" class="btn-primary">Valider le code</button>
+    </form>
+</div>
+{% endif %}
+
 <div class="card">
     <div class="progress-bar">
         <div class="progress-fill progress-pass" style="width:100%"></div>
@@ -38,7 +51,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-{% if test.status in ('exploring','running','cancel_requested') %}
+{% if test.status in ('exploring','running','waiting_otp','otp_submitted','cancel_requested') %}
 setInterval(function(){
     fetch(location.href, {headers:{'Accept':'text/html'}})
         .then(r=>r.text())

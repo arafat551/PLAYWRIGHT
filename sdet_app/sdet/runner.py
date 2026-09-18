@@ -11,7 +11,7 @@ import traceback
 
 from ..config import env, setting_int
 from .action_interpreter import ActionInterpreter
-from .browser import settle, has_login_form, try_login
+from .browser import settle
 
 # Canonical action types executed deterministically by the interpreter.
 # Legacy planner steps also carry an 'action_type' key (NAVIGATION, CREATE,
