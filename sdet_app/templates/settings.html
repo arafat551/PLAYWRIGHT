@@ -19,44 +19,43 @@
     <code>.env</code> et jamais exposées dans l'interface.
 </div>
 
-<div class="card">
-    <form method="POST" class="settings-form">
-        {% for key, label, ftype, help in fields %}
-        {% if key == 'report_email_enabled' %}
-        <h2 class="settings-section-title">Envoi du rapport par e-mail (SMTP)</h2>
-        <p class="text-muted text-small" style="margin:0 0 12px">
-            À la fin de chaque scénario, un résumé des statistiques (PASS / FAIL /
-            WARNING / SKIPPED) est envoyé avec le rapport en PDF en pièce jointe.
-        </p>
-        {% endif %}
-        <div class="settings-row">
-            <div class="settings-info">
-                <label for="{{ key }}">{{ label }}</label>
-                <span class="text-muted text-small">{{ help }}</span>
+<form method="POST">
+    <div class="settings-grid">
+        {% for group_key, group_title, group_subtitle, group_fields in groups %}
+        <div class="card settings-card">
+            <h2>{{ group_title }}</h2>
+            <p class="text-muted text-small settings-group-subtitle">{{ group_subtitle }}</p>
+            {% for key, label, ftype, help in group_fields %}
+            <div class="settings-row">
+                <div class="settings-info">
+                    <label for="{{ key }}">{{ label }}</label>
+                    <span class="text-muted text-small">{{ help }}</span>
+                </div>
+                <div class="settings-control">
+                    {% if ftype == 'bool' %}
+                    <select name="{{ key }}" id="{{ key }}">
+                        <option value="1" {{ 'selected' if vals[key]=='1' else '' }}>Oui</option>
+                        <option value="0" {{ 'selected' if vals[key]!='1' else '' }}>Non</option>
+                    </select>
+                    {% elif ftype == 'int' %}
+                    <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
+                    {% elif ftype == 'password' %}
+                    <input type="password" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" autocomplete="off">
+                    {% elif key == 'report_email_recipient' %}
+                    <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" style="width:100%;max-width:100%">
+                    {% else %}
+                    <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
+                    {% endif %}
+                </div>
             </div>
-            <div class="settings-control">
-                {% if ftype == 'bool' %}
-                <select name="{{ key }}" id="{{ key }}">
-                    <option value="1" {{ 'selected' if vals[key]=='1' else '' }}>Oui</option>
-                    <option value="0" {{ 'selected' if vals[key]!='1' else '' }}>Non</option>
-                </select>
-                {% elif ftype == 'int' %}
-                <input type="number" name="{{ key }}" id="{{ key }}" min="0" value="{{ vals[key] }}">
-                {% elif ftype == 'password' %}
-                <input type="password" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" autocomplete="off">
-                {% elif key == 'report_email_recipient' %}
-                <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}" style="width:520px;max-width:100%">
-                {% else %}
-                <input type="text" name="{{ key }}" id="{{ key }}" value="{{ vals[key] }}">
-                {% endif %}
-            </div>
+            {% endfor %}
         </div>
         {% endfor %}
+    </div>
 
-        <div class="form-actions">
-            <a href="{{ url_for('dashboard') }}" class="btn-secondary">Annuler</a>
-            <button type="submit" class="btn-primary">Enregistrer</button>
-        </div>
-    </form>
-</div>
+    <div class="form-actions">
+        <a href="{{ url_for('dashboard') }}" class="btn-secondary">Annuler</a>
+        <button type="submit" class="btn-primary">Enregistrer</button>
+    </div>
+</form>
 {% endblock %}

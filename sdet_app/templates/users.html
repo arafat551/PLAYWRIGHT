@@ -137,7 +137,6 @@
                     <tr><th>Adresse e-mail</th><td id="vv_email">—</td></tr>
                     <tr><th>Rôle</th><td id="vv_role">—</td></tr>
                     <tr><th>Créé le</th><td id="vv_created">—</td></tr>
-                    <tr><th>Statut</th><td id="vv_active">—</td></tr>
                 </tbody>
             </table>
             <div class="modal-actions">
@@ -216,7 +215,6 @@
         document.getElementById('vv_email').textContent = btn.dataset.email || '—';
         document.getElementById('vv_role').textContent = btn.dataset.role === 'admin' ? 'Administrateur' : 'QA';
         document.getElementById('vv_created').textContent = btn.dataset.created || '—';
-        document.getElementById('vv_active').textContent = btn.dataset.active || '—';
         openModal('viewUserModal');
     };
 

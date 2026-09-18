@@ -1154,34 +1154,44 @@ def _send_report_email_async(tid):
 # ---------------------------------------------------------------------------
 
 SETTINGS_FIELDS = [
+    # (key, label, type, help, group)
     ("max_pages", "Pages maximum", "int",
-     "Limite de pages parcourues lors d'une exploration."),
+     "Limite de pages parcourues lors d'une exploration.", "engine"),
     ("max_buttons", "Boutons / actions par page", "int",
-     "Nombre maximum d'éléments interactifs inventoriés par page."),
+     "Nombre maximum d'éléments interactifs inventoriés par page.", "engine"),
     ("max_forms", "Formulaires par page", "int",
-     "Nombre maximum de formulaires détectés par page."),
+     "Nombre maximum de formulaires détectés par page.", "engine"),
     ("page_timeout", "Délai de chargement (ms)", "int",
-     "Temps maximal d'attente du chargement d'une page."),
+     "Temps maximal d'attente du chargement d'une page.", "engine"),
     ("headless", "Navigateur sans interface (headless)", "bool",
      "Activez : le navigateur s'exécute en arrière-plan, sans fenêtre visible. "
-     "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement."),
+     "Désactivez : la fenêtre du navigateur s'affiche pendant les tests pour suivre le déroulement.", "engine"),
     ("otp_auto_fetch", "Récupération automatique du code OTP (2FA)", "bool",
      "Activez : le code OTP reçu par e-mail est automatiquement saisi. "
-     "Désactivez : vous devez saisir manuellement le code dans l'interface."),
+     "Désactivez : vous devez saisir manuellement le code dans l'interface.", "email"),
     ("report_email_enabled", "Rapport par e-mail", "bool",
      "Activez : à la fin de chaque scénario, un résumé des statistiques est envoyé "
-     "par e-mail avec le rapport en PDF en pièce jointe."),
+     "par e-mail avec le rapport en PDF en pièce jointe.", "email"),
     ("report_email_recipient", "Destinataires du rapport", "text",
-     "Adresse(s) e-mail des destinataires, séparées par des virgules ou des points-virgules."),
+     "Adresse(s) e-mail des destinataires, séparées par des virgules ou des points-virgules.", "email"),
     ("report_email_subject", "Objet de l'e-mail", "text",
-     "Titre affiché dans la boîte de réception."),
+     "Titre affiché dans la boîte de réception.", "email"),
     ("smtp_user", "Utilisateur SMTP", "text",
-     "Votre adresse Gmail utilisée pour se connecter au serveur SMTP."),
+     "Votre adresse Gmail utilisée pour se connecter au serveur SMTP.", "email"),
     ("smtp_password", "Mot de passe SMTP", "password",
      "Mot de passe ou clé d'application du compte Gmail (serveur, port et sécurité "
-     "sont déjà configurés dans le code)."),
-
+     "sont déjà configurés dans le code).", "email"),
 ]
+
+SETTINGS_GROUP_TITLES = {
+    "engine": "Paramètres d'exploration",
+    "email": "Envoi du rapport par e-mail (SMTP)",
+}
+
+SETTINGS_GROUP_SUBTITLES = {
+    "engine": "Comportement du moteur : limites de parcours, navigateur et OTP.",
+    "email": "Notification automatique du rapport par e-mail à la fin de chaque scénario.",
+}
 
 SETTINGS_DEFAULTS = {
     "max_pages": env.MAX_PAGES,
@@ -1217,7 +1227,7 @@ _UI_EDITABLE_KEYS = frozenset({
 def settings():
     if request.method == "POST":
         payload = {}
-        for key, _label, ftype, _help in SETTINGS_FIELDS:
+        for key, _label, ftype, _help, _group in SETTINGS_FIELDS:
             raw = (request.form.get(key) or "").strip()
             if ftype == "bool":
                 payload[key] = "1" if raw in ("1", "true", "on", "oui") else "0"
@@ -1234,7 +1244,16 @@ def settings():
 
     vals = {k: get_setting(k, d) for k, d in SETTINGS_DEFAULTS.items()}
     vals["headless"] = "1" if str(vals["headless"]).lower() in ("1", "true", "yes", "on") else "0"
-    return render_template("settings.html", fields=SETTINGS_FIELDS, vals=vals)
+    groups = []
+    for group_key in ("engine", "email"):
+        group_fields = [f[:4] for f in SETTINGS_FIELDS if f[4] == group_key]
+        groups.append((
+            group_key,
+            SETTINGS_GROUP_TITLES[group_key],
+            SETTINGS_GROUP_SUBTITLES[group_key],
+            group_fields,
+        ))
+    return render_template("settings.html", groups=groups, vals=vals)
 
 
 # ---------------------------------------------------------------------------
