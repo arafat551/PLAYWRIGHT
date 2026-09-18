@@ -66,7 +66,7 @@ def _authenticate(session, project, tid):
             return False
 
 
-def run_exploration(tid, pid):
+def run_exploration(tid, pid, headless=None):
     """Discover pages + actions of a project and persist the cartography."""
     project = _project_dict(pid)
     if not project:
@@ -76,7 +76,7 @@ def run_exploration(tid, pid):
     session = None
     stop = None
     try:
-        session, stop = open_session()
+        session, stop = open_session(headless=headless)
         page = session.page
         try:
             session.goto(project["url"])
@@ -134,7 +134,7 @@ def run_exploration(tid, pid):
                 pass
 
 
-def run_test(tid, pid, plan):
+def run_test(tid, pid, plan, headless=None):
     """Execute a previously-built plan (scenario steps) on the project."""
     project = _project_dict(pid)
     if not project:
@@ -148,7 +148,7 @@ def run_test(tid, pid, plan):
     start = time.time()
     final_status = None
     try:
-        session, stop = open_session()
+        session, stop = open_session(headless=headless)
         page = session.page
         try:
             session.goto(project["url"])

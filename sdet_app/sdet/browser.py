@@ -84,10 +84,10 @@ class BrowserSession:
         return errs
 
 
-def open_session(session_factory=None):
+def open_session(session_factory=None, headless=None):
     from playwright.sync_api import sync_playwright
     pw = session_factory() if session_factory else sync_playwright().start()
-    return BrowserSession(pw), (pw.stop if not session_factory else None)
+    return BrowserSession(pw, headless=headless), (pw.stop if not session_factory else None)
 
 
 def has_login_form(page):

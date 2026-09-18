@@ -29,6 +29,10 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 # the entry point (run.py, flask run, ...). Idempotent, safe to re-run.
 database.init_db()
 
+# Start the background scheduler for auto-execution of scenarios
+from .scheduler import start_scheduler
+start_scheduler()
+
 # ---------------------------------------------------------------------------
 # Background step-generation tracking (in-memory, single local user)
 # ---------------------------------------------------------------------------
@@ -1231,6 +1235,69 @@ def settings():
     vals = {k: get_setting(k, d) for k, d in SETTINGS_DEFAULTS.items()}
     vals["headless"] = "1" if str(vals["headless"]).lower() in ("1", "true", "yes", "on") else "0"
     return render_template("settings.html", fields=SETTINGS_FIELDS, vals=vals)
+
+
+# ---------------------------------------------------------------------------
+# Programmations (auto-execution of scenarios)
+# ---------------------------------------------------------------------------
+
+@app.route("/schedules")
+def _schedules_redirect():
+    return redirect(url_for("programmations_list"))
+
+
+@app.route("/programmations")
+@login_required
+def programmations_list():
+    owner = session.get("user_id")
+    role = session.get("user_role", "qa")
+    runs = database.list_scheduled_runs(owner_id=owner if role != "admin" else None)
+    projects = database.list_projects(owner_id=owner if role != "admin" else None)
+    return render_template("programmations.html", runs=runs, projects=projects)
+
+
+@app.route("/programmations/add", methods=["POST"])
+@login_required
+def programmation_add():
+    pid = request.form.get("project_id")
+    interval_str = request.form.get("interval_minutes", "60")
+    time_of_day = request.form.get("time_of_day", "08:00")
+    day_of_week = request.form.get("day_of_week", "")
+    if not pid or not str(pid).isdigit():
+        flash("Projet invalide", "error")
+        return redirect(url_for("programmations_list"))
+    pid = int(pid)
+    try:
+        interval_minutes = int(interval_str)
+    except (ValueError, TypeError):
+        interval_minutes = 60
+    if interval_minutes < 1 or interval_minutes > 10080:  # max 1 week in minutes
+        interval_minutes = 60
+    database.create_scheduled_run(pid, interval_minutes=interval_minutes,
+                                  time_of_day=time_of_day, day_of_week=day_of_week)
+    flash("Programmation créée", "success")
+    return redirect(url_for("programmations_list"))
+
+
+@app.route("/programmations/<int:sid>/toggle", methods=["POST"])
+@login_required
+def programmation_toggle(sid):
+    sched = database.get_scheduled_run(sid)
+    if not sched:
+        flash("Programmation introuvable", "error")
+        return redirect(url_for("programmations_list"))
+    new_val = 0 if sched["is_active"] else 1
+    database.update_scheduled_run(sid, is_active=new_val)
+    flash("Programmation " + ("activée" if new_val else "désactivée"), "success")
+    return redirect(url_for("programmations_list"))
+
+
+@app.route("/programmations/<int:sid>/delete", methods=["POST"])
+@login_required
+def programmation_delete(sid):
+    database.delete_scheduled_run(sid)
+    flash("Programmation supprimée", "success")
+    return redirect(url_for("programmations_list"))
 
 
 # ---------------------------------------------------------------------------
