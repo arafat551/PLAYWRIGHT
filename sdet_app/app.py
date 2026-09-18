@@ -1176,12 +1176,7 @@ SETTINGS_FIELDS = [
     ("smtp_password", "Mot de passe SMTP", "password",
      "Mot de passe ou clé d'application du compte Gmail (serveur, port et sécurité "
      "sont déjà configurés dans le code)."),
-    ("imap_user", "Utilisateur IMAP", "text",
-     "Adresse du compte Gmail utilisé pour lire les codes OTP (2FA). "
-     "Si laissé vide, l'utilisateur SMTP est utilisé automatiquement."),
-    ("imap_password", "Mot de passe IMAP", "password",
-     "Mot de passe ou clé d'application du compte Gmail pour la lecture IMAP. "
-     "Si laissé vide, le mot de passe SMTP est utilisé automatiquement."),
+
 ]
 
 SETTINGS_DEFAULTS = {
