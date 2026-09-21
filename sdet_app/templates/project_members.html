@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Accès au projet - AUTOMATION{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>
+            <span class="head-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            Accès au projet
+        </h1>
+        <div class="page-subtitle">{{ project.name }} — quels utilisateurs du moteur peuvent voir ce projet et lancer des tests</div>
+    </div>
+    <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Retour au projet</a>
+</div>
+
+<div class="card form-card">
+    {% if users %}
+    <form method="POST">
+        <p class="text-muted text-small">Cochez les utilisateurs (QA) autorisés à accéder à ce projet. Les administrateurs y ont toujours accès.</p>
+        <div class="qa-picker">
+            {% for u in users %}
+            <label class="qa-chip">
+                <input type="checkbox" name="grant" value="{{ u.id }}" {{ 'checked' if u.id in granted else '' }}>
+                <span>{{ u.full_name or u.email }}</span>
+                <span class="text-muted text-small">{{ u.email }}</span>
+            </label>
+            {% endfor %}
+        </div>
+        <div class="form-actions">
+            <a href="{{ url_for('project_detail', pid=project.id) }}" class="btn-secondary">Annuler</a>
+            <button type="submit" class="btn-primary">Enregistrer les accès</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="text-muted">Aucun utilisateur QA — créez d'abord des comptes dans
+        <a href="{{ url_for('users') }}">Gestion des utilisateurs</a>.</p>
+    {% endif %}
+</div>
+{% endblock %}

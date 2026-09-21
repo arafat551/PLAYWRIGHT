@@ -391,6 +391,8 @@ main.with-sidebar {
 .action-toggle:hover { background: #eef1f7; border-color: #c3cad9; color: var(--text); transform: translateY(-1px); }
 .action-activate { background: var(--success-050); border-color: #bbf7d0; color: var(--success-600); }
 .action-activate:hover { background: #dcfce7; border-color: var(--success); color: var(--success-600); transform: translateY(-1px); }
+.action-members { background: var(--success-050); border-color: #bbf7d0; color: var(--success); }
+.action-members:hover { background: #dcfce7; border-color: var(--success); color: var(--success); transform: translateY(-1px); }
 
 .form-actions {
   margin-top: 1.5rem;
@@ -456,6 +458,34 @@ select { background: var(--surface); cursor: pointer; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }
 }
+
+.qa-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.qa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.qa-chip:hover { border-color: var(--accent); }
+.qa-chip input { accent-color: var(--accent); cursor: pointer; }
+.qa-chip:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.form-card .qa-picker + .text-muted { margin-top: 0.15rem; }
 
 .settings-form { max-width: 760px; }
 .settings-grid {

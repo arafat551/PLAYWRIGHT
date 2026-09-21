@@ -111,10 +111,6 @@
                     <span class="text-muted text-small">Vide = mot de passe temporaire envoyé par e-mail à l'utilisateur</span>
                 </div>
                 <div class="settings-row">
-                    <label for="au_password_confirm">Confirmer le mot de passe</label>
-                    <input type="text" name="password_confirm" id="au_password_confirm" placeholder="Retapez le mot de passe choisi">
-                </div>
-                <div class="settings-row">
                     <label for="au_role">Rôle</label>
                     <select name="role" id="au_role">
                         <option value="qa" selected>QA — exécute et analyse les tests</option>
@@ -246,13 +242,6 @@
             ev.preventDefault();
             var err = document.getElementById('addError');
             err.classList.remove('show');
-            var pw = document.getElementById('au_password').value;
-            var cpw = document.getElementById('au_password_confirm').value;
-            if (pw && pw !== cpw) {
-                err.textContent = 'Les deux mots de passe ne correspondent pas';
-                err.classList.add('show');
-                return;
-            }
             var fd = new FormData(addForm);
             fetch('/users/new', {
                 method: 'POST',

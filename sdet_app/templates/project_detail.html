@@ -16,7 +16,9 @@
     </div>
     <div class="run-actions">
         <a class="btn-primary" href="{{ url_for('project_scenarios', pid=project.id) }}">Scénarios de test</a>
+        {% if user_role == 'admin' %}
         <a class="btn-sm btn-warning" href="{{ url_for('project_edit', pid=project.id) }}">Modifier</a>
+        {% endif %}
     </div>
 </div>
 

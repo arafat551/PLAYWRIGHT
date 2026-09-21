@@ -184,21 +184,20 @@ def _guard_ownership():
     vals = request.view_args or {}
     uid = _own_uid()
     if "pid" in vals:
-        project = database.get_project(vals["pid"])
-        if not project or project.row.get("owner_id") != uid:
+        if not database.project_is_visible(vals["pid"], uid):
             flash("Projet introuvable", "error")
             return redirect(url_for("projects"))
     if "tid" in vals:
         test = database.get_test_run(vals["tid"])
-        if not test or getattr(test, "owner_id", None) != uid:
+        if not test or not database.project_is_visible(test.project_id, uid):
             flash("Test introuvable", "error")
             return redirect(url_for("projects"))
     return None
 
 
-def _can_delete(owner_id):
-    """Deletion is always limited to the owner, even for admins."""
-    return owner_id is not None and owner_id == _own_uid()
+def _can_delete(owner_id=None):
+    """Deletion is reserved to administrators."""
+    return session.get("user_role") == "admin"
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +278,9 @@ def projects():
 @app.route("/projects/new", methods=["GET", "POST"])
 @login_required
 def project_new():
+    if session.get("user_role") != "admin":
+        flash("Seul un administrateur peut créer un projet", "error")
+        return redirect(url_for("projects"))
     if request.method == "POST":
         data = _project_form()
         errors = _validate_project(data)
@@ -313,10 +315,14 @@ def project_detail(pid):
 @app.route("/projects/<int:pid>/edit", methods=["GET", "POST"])
 @login_required
 def project_edit(pid):
+    if session.get("user_role") != "admin":
+        flash("Seul un administrateur peut modifier un projet", "error")
+        return redirect(url_for("projects"))
     project = database.get_project(pid)
     if not project:
         flash("Projet introuvable", "error")
         return redirect(url_for("projects"))
+    qa_users = [u for u in database.list_users() if u.role != "admin"]
     if request.method == "POST":
         data = _project_form()
         errors = _validate_project(data, editing=True)
@@ -331,9 +337,31 @@ def project_edit(pid):
     return render_template("project_form.html", project=project, editing=True)
 
 
+@app.route("/projects/<int:pid>/members", methods=["GET", "POST"])
+@admin_required
+def project_members(pid):
+    """Administrator-only page: grant/revoke project access for automation
+    users (QA). Admins already see every project."""
+    project = database.get_project(pid)
+    if not project:
+        flash("Projet introuvable", "error")
+        return redirect(url_for("projects"))
+    users = [u for u in database.list_users() if u.role != "admin"]
+    if request.method == "POST":
+        database.replace_project_members(pid, request.form.getlist("grant"))
+        flash("Accès au projet mis à jour", "success")
+        return redirect(url_for("project_detail", pid=pid))
+    granted = set(database.project_member_ids(pid))
+    return render_template("project_members.html", project=project, users=users,
+                           granted=granted)
+
+
 @app.route("/projects/<int:pid>/toggle", methods=["POST"])
 @login_required
 def project_toggle(pid):
+    if session.get("user_role") != "admin":
+        flash("Seul un administrateur peut activer/désactiver un projet", "error")
+        return redirect(url_for("projects"))
     status = database.toggle_project(pid)
     if not status:
         flash("Projet introuvable", "error")
@@ -347,7 +375,7 @@ def project_toggle(pid):
 def project_delete(pid):
     project = database.get_project(pid)
     if not project or not _can_delete(project.row.get("owner_id")):
-        flash("Vous ne pouvez supprimer que vos propres projets", "error")
+        flash("Seul un administrateur peut supprimer un projet", "error")
         return redirect(url_for("projects"))
     database.delete_project(pid)
     flash("Projet supprimé", "success")
