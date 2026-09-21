@@ -28,6 +28,7 @@
             <tr><th>URL</th><td><a href="{{ project.url }}" target="_blank">{{ project.url }}</a></td></tr>
             <tr><th>Environnement</th><td>{{ project.environment }}</td></tr>
             <tr><th>Authentification</th><td>{{ project.auth_type }}</td></tr>
+            <tr><th>Destinataires du rapport</th><td>{% if project.report_recipients %}{{ project.report_recipients }}{% else %}<span class="text-muted">Valeur globale des Paramètres</span>{% endif %}</td></tr>
         </table>
     </div>
     <div class="card">

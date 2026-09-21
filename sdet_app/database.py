@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
     comments TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
     owner_id INTEGER DEFAULT NULL,
+    report_recipients TEXT DEFAULT '',
     created_by TEXT DEFAULT '',
     updated_by TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
@@ -226,6 +227,9 @@ def init_db(path=None):
     pcols = [r[1] for r in db.execute("PRAGMA table_info(projects)").fetchall()]
     if "owner_id" not in pcols:
         db.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER DEFAULT NULL")
+    if "report_recipients" not in pcols:
+        db.execute(
+            "ALTER TABLE projects ADD COLUMN report_recipients TEXT DEFAULT ''")
     tcols = [r[1] for r in db.execute("PRAGMA table_info(test_runs)").fetchall()]
     if "owner_id" not in tcols:
         db.execute("ALTER TABLE test_runs ADD COLUMN owner_id INTEGER DEFAULT NULL")
@@ -827,11 +831,11 @@ def create_project(data, editor="", encrypt=None, decrypt=None, owner_id=None):
     cur = db.execute(
         """INSERT INTO projects
            (name, url, email, password_enc, auth_type, environment, comments,
-            owner_id, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            owner_id, report_recipients, created_by, updated_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (data["name"], data["url"], data["email"], encrypt(data["password"]),
          data["auth_type"], data["environment"], data["comments"],
-         owner_id, editor, editor))
+         owner_id, data.get("report_recipients", ""), editor, editor))
     db.commit()
     pid = cur.lastrowid
     db.close()
@@ -847,11 +851,11 @@ def update_project(pid, data, editor="", encrypt=None, keep_password=None):
         pw_enc = proj["password_enc"] if proj else ""
     db.execute(
         """UPDATE projects SET name=?, url=?, email=?, password_enc=?,
-           auth_type=?, environment=?, comments=?, updated_by=?,
-           updated_at=datetime('now') WHERE id=?""",
+           auth_type=?, environment=?, comments=?, report_recipients=?,
+           updated_by=?, updated_at=datetime('now') WHERE id=?""",
         (data["name"], data["url"], data["email"], pw_enc,
          data["auth_type"], data["environment"], data["comments"],
-         editor, pid))
+         data.get("report_recipients", ""), editor, pid))
     db.commit()
     db.close()
 
@@ -947,7 +951,7 @@ def create_test_run(pid, run_type, launched_by="", plan=None, owner_id=None):
 def get_test_run(tid, owner_id=None):
     db = get_connection()
     sql = """SELECT t.*, p.name as project_name, p.id as project_id, p.url as project_url,
-           p.environment as project_env
+           p.environment as project_env, p.report_recipients as report_recipients
            FROM test_runs t JOIN projects p ON t.project_id = p.id
            WHERE t.id=?"""
     args = [tid]

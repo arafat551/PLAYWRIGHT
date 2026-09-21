@@ -44,6 +44,10 @@
         <label>Commentaires / Instructions QA</label>
         <textarea name="comments" rows="4" placeholder="Tester tous les modules. Ne pas effectuer de paiement réel. Ne pas supprimer les utilisateurs existants...">{{ project.comments if project else '' }}</textarea>
 
+        <label>Destinataires du rapport <span class="text-muted font-normal">(e-mails)</span></label>
+        <input type="text" name="report_recipients" placeholder="rapport-equipe@exemple.com, chef-projet@exemple.com" value="{{ project.report_recipients if project else '' }}">
+        <span class="text-muted text-small">Adresses e-mail séparées par des virgules ou des points-virgules. Ces personnes recevront le rapport à la fin de chaque scénario. Laissez vide pour utiliser la valeur globale des Paramètres.</span>
+
         <div class="form-actions">
             <a href="{{ url_for('projects') }}" class="btn-secondary">Annuler</a>
             <button type="submit" class="btn-primary">Enregistrer</button>

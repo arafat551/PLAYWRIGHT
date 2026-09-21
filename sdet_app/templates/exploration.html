@@ -29,6 +29,47 @@
     <span>Pages découvertes : {{ test.total }}</span>
 </div>
 
+{% if test.status in ('running','exploring','waiting_otp','otp_submitted','cancel_requested') %}
+<div class="run-console">
+    <div class="run-console-level">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span class="run-console-spin" aria-hidden="true"></span>
+        <span class="run-console-title">
+            {% if test.status == 'waiting_otp' %}CODE OTP REQUIS{% else %}EXPLORATION EN COURS{% endif %}
+        </span>
+        <span class="badge badge-live">
+            {% if test.status == 'cancel_requested' %}ARRÊT…{% elif test.status == 'waiting_otp' %}EN ATTENTE{% else %}EN DIRECT{% endif %}
+        </span>
+    </div>
+    <div class="run-console-sub">
+        {% if test.status == 'waiting_otp' %}L'application attend un code de vérification (2FA).
+        {% elif test.status == 'otp_submitted' %}Code OTP soumis — reprise de l'exploration…
+        {% elif test.status == 'cancel_requested' %}Arrêt demandé — finition de la page en cours…
+        {% else %}L'application est analysée pour recenser boutons, formulaires, recherches et tableaux…
+        {% endif %}
+        &nbsp;•&nbsp; Pages découvertes : {{ test.total }}
+    </div>
+    {% set recent = results[-5:] %}
+    {% if recent %}
+    <div class="run-live-feed">
+        {% for r in recent %}
+        <div class="run-live-item">
+            <span class="badge {{ 'badge-PENDING' if r.status in ('', 'PENDING') else 'badge-' ~ r.status }}">
+                {{- 'En attente' if r.status in ('', 'PENDING') else r.status -}}
+            </span>
+            <span class="run-live-func">{{ r.module }} — {{ r.function }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="run-console-actions">
+        <form class="inline-form" method="POST" action="{{ url_for('test_cancel', tid=test.id) }}">
+            <button class="btn-stop">Arrêter l'exploration</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {% if test.status == 'waiting_otp' %}
 <div class="card" style="margin-top:1rem;border:2px solid #6366f1">
     <h2 style="margin-top:0;color:#4f46e5">Code OTP requis (2FA)</h2>

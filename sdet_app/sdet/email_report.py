@@ -80,13 +80,13 @@ def build_email_content(project, test_run, report):
     pct = report["success_pct"]
 
     if failed:
-        verdict, verdict_color = "ÉCHEC", "#b91c1c"
+        verdict = "ÉCHEC"
     elif warning:
-        verdict, verdict_color = "ATTENTION", "#b45309"
+        verdict = "ATTENTION"
     elif total:
-        verdict, verdict_color = "RÉUSSITE", "#15803d"
+        verdict = "RÉUSSITE"
     else:
-        verdict, verdict_color = "AUCUN TEST EXÉCUTÉ", "#64748b"
+        verdict = "AUCUN TEST EXÉCUTÉ"
 
     header = [
         ("Projet", report["project"]),
@@ -139,6 +139,16 @@ def build_email_content(project, test_run, report):
     body_text = "\n".join(lines)
 
     # --- Version HTML -------------------------------------------------------
+    verdict_label = {
+        "ÉCHEC": ("ÉCHEC", "#b91c1c", "#fef2f2", "#fecaca"),
+        "ATTENTION": ("ATTENTION", "#b45309", "#fffbeb", "#fde68a"),
+        "RÉUSSITE": ("RÉUSSITE", "#15803d", "#f0fdf4", "#bbf7d0"),
+        "AUCUN TEST EXÉCUTÉ": ("AUCUN TEST", "#64748b", "#f8fafc", "#e2e8f0"),
+    }[verdict]
+    v_text, v_color, v_bg, v_border = verdict_label
+    v_icon = {"ÉCHEC": "&#10007;", "ATTENTION": "&#9888;",
+              "RÉUSSITE": "&#10004;", "AUCUN TEST EXÉCUTÉ": "&#8212;"}[verdict]
+
     if failed:
         intro = (f"Voici les résultats des tests : <b>{passed} test(s) réussi(s)</b> "
                  f"et <b>{failed} échec(s)</b>")
@@ -153,50 +163,116 @@ def build_email_content(project, test_run, report):
         intro += f" et <b>{skipped} test(s) ignoré(s)</b>"
     intro += "."
 
-    stat_rows = "".join(
-        f'<tr>'
-        f'<td style="padding:14px 20px;border:1px solid #e2e8f0;font-weight:600;'
-        f'font-size:15px;color:#0f172a;background:#fafbfe;width:60%">{label}</td>'
-        f'<td style="padding:14px 20px;border:1px solid #e2e8f0;text-align:center;'
-        f'font-size:18px;font-weight:800;color:{color}">{value}</td></tr>'
-        for label, value, color in (
-            ("Total", total, "#0f172a"),
-            ("PASS", passed, "#15803d"),
-            ("FAIL", failed, "#b91c1c"),
-            ("WARNING", warning, "#b45309"),
-            ("SKIPPED", skipped, "#64748b"),
-        ))
+    def _stat_card(value, label, color, bg, border):
+        return (
+            f'<div style="border:1px solid {border};border-radius:12px;background:{bg};'
+            f'padding:10px 6px;text-align:center;">'
+            f'<div style="font-size:22px;line-height:1.1;font-weight:800;color:{color};">'
+            f'{value}</div>'
+            f'<div style="font-size:8px;line-height:1.2;font-weight:800;letter-spacing:.7px;'
+            f'color:{color};margin-top:3px;">{label}</div>'
+            f'</div>')
 
-    url_html = (f'<br><b>URL :</b> <a href="{project_url}" style="color:#4f46e5">'
-                f'{project_url}</a>' if project_url else "")
-    meta_block = (
-        f'<div style="margin:0 0 18px;padding:12px 16px;background:#f8fafc;'
-        f'border-radius:8px;font-size:13px;line-height:1.7">'
-        f'<b>Projet :</b> {report["project"]} &nbsp; '
-        f'<b>Environnement :</b> {report["environment"]}{url_html}<br>'
-        f'<b>Date :</b> {report["date"]} &nbsp; '
-        f'<b>Lancé par :</b> {report["launched_by"]} &nbsp; '
-        f'<b>Durée :</b> {report["duration"]}'
+    def _section(title, color):
+        return (
+            f'<div style="font-size:10px;font-weight:800;letter-spacing:1.1px;color:{color};'
+            f'margin:14px 0 6px;text-transform:uppercase;">{title}</div>')
+
+    def _meta_value(value, is_url=False):
+        if is_url:
+            return (f'<a href="{value}" style="color:#4f46e5;font-weight:600;'
+                    f'word-break:break-word;">{value}</a>')
+        return value
+
+    # 1) Héro : pourcentage + verdict
+    fill_width = max(min(int(pct), 100), 0)
+    hero = (
+        f'<div style="background:{v_bg};border:1px solid {v_border};border-radius:14px;'
+        f'padding:14px 16px;text-align:center;margin:0 0 10px;">'
+        f'<div style="font-size:9px;font-weight:800;letter-spacing:1.3px;color:{v_color};">'
+        f'TAUX DE RÉUSSITE</div>'
+        f'<div style="font-size:36px;line-height:1.1;font-weight:800;color:{v_color};'
+        f'margin:2px 0 6px;">{pct}&thinsp;%</div>'
+        f'<span style="display:inline-block;background:#ffffff;border:1px solid {v_border};'
+        f'color:{v_color};border-radius:999px;padding:4px 14px;font-size:10px;font-weight:800;'
+        f'letter-spacing:.7px;">{v_icon}&nbsp;{v_text}</span>'
         f'</div>'
-    )
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="border-collapse:collapse;margin:0 0 12px;"><tr><td>'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="background:#eef2ff;border-radius:8px;border-collapse:collapse;">'
+        f'<tr><td width="{fill_width}" style="background-color:{v_color};'
+        f'background-image:linear-gradient(90deg,{v_color},#7c3aed);border-radius:8px;'
+        f'height:8px;font-size:1px;line-height:8px;">&nbsp;</td>'
+        f'<td width="{max(100 - fill_width, 1)}" style="height:8px;font-size:1px;">&nbsp;</td>'
+        f'</tr></table></td></tr></table>')
 
-    body_html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f4f6fb">
-<div style="max-width:600px;margin:0 auto;padding:18px">
-  <div style="background:#4f46e5;border-radius:10px 10px 0 0;padding:12px 20px">
-    <h1 style="margin:0;color:#fff;font-size:16px">Rapport d'exécution AUTOMATION</h1>
-  </div>
-  <div style="background:#fff;border:1px solid #e5e9f2;border-top:0;border-radius:0 0 10px 10px;padding:22px">
-    <p style="font-size:14px;margin:0 0 18px;line-height:1.6">{intro}</p>
-    {meta_block}
-    <table style="border-collapse:collapse;width:100%;font-size:14px">{stat_rows}</table>
-    <p style="font-size:15px;margin:18px 0 0;padding:10px 14px;background:#f8fafc;border-radius:8px">
-      <b>Taux de réussite : {pct}%</b> — verdict <b style="color:{verdict_color}">{verdict}</b></p>
-    <p style="font-size:12px;color:#94a3b8;margin:20px 0 0;border-top:1px solid #f1f5f9;
-      padding-top:10px;text-align:center">
-      Le rapport complet est joint à cet e-mail (PDF).</p>
-  </div>
-</div></body></html>"""
+    # 2) Cartes statistiques (2 × 2)
+    cards = (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="border-collapse:collapse;margin:0 0 10px;">'
+        f'<tr>'
+        f'<td width="50%" style="padding:2px;vertical-align:top;">'
+        f'{_stat_card(passed, "RÉUSSIS", "#15803d", "#f0fdf4", "#bbf7d0")}</td>'
+        f'<td width="50%" style="padding:2px;vertical-align:top;">'
+        f'{_stat_card(failed, "ÉCHECS", "#b91c1c", "#fef2f2", "#fecaca")}</td>'
+        f'</tr>'
+        f'<tr>'
+        f'<td width="50%" style="padding:2px;vertical-align:top;">'
+        f'{_stat_card(warning, "AVERTISSEMENTS", "#b45309", "#fffbeb", "#fde68a")}</td>'
+        f'<td width="50%" style="padding:2px;vertical-align:top;">'
+        f'{_stat_card(skipped, "IGNORÉS", "#64748b", "#f8fafc", "#e2e8f0")}</td>'
+        f'</tr>'
+        f'</table>')
+
+    # 3) Informations du scénario
+    meta_rows = ""
+    for label, value in header:
+        is_url = label == "URL"
+        meta_rows += (
+            f'<tr>'
+            f'<td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;font-size:9px;'
+            f'font-weight:800;letter-spacing:.6px;color:#64748b;width:38%;'
+            f'text-transform:uppercase;">{label}</td>'
+            f'<td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;'
+            f'color:#0f172a;font-weight:600;word-break:break-word;">'
+            f'{_meta_value(value, is_url)}</td>'
+            f'</tr>')
+    meta_block = (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:12px;'
+        f'overflow:hidden;margin:0 0 6px;">{meta_rows}</table>')
+
+    # 4) Échecs détectés
+    failure_block = ""
+    if failed:
+        failure_rows = "".join(
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'style="border-collapse:collapse;margin:3px 0;"><tr>'
+            f'<td style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'
+            f'padding:8px 10px;font-size:11px;line-height:1.4;color:#7f1d1d;">'
+            f'<b style="color:#991b1b;">[{f.get("module", "") or "Module"}] '
+            f'{f.get("function", "") or f.get("function_name", "")}</b>'
+            f' <span style="color:#b91c1c;">— {f.get("obtained", "") or "voir le rapport"}</span>'
+            f'</td></tr></table>'
+            for f in (report.get("failures") or []))
+        failure_block = (
+            f'{_section("Échecs détectés", "#b91c1c")}'
+            f'{failure_rows}')
+
+    content = (
+        f'<p style="margin:0 0 6px;font-size:14px;line-height:1.55">{intro}</p>'
+        f'{hero}'
+        f'{cards}'
+        f'{meta_block}'
+        f'{failure_block}'
+        f'<p style="font-size:11px;color:#94a3b8;margin:12px 0 0;border-top:1px solid #f1f5f9;'
+        f'padding-top:10px;text-align:center;">Le rapport complet est joint à cet e-mail (PDF).</p>')
+
+    body_html = mailer.render_html(
+        "Rapport d'exécution AUTOMATION", content,
+        preheader=f"{report['project']} · {pct}% de réussite"
+                  f"{f' · {failed} échec(s)' if failed else ' · aucun échec'}")
 
     subject_template = get_setting(
         "report_email_subject", "Rapport AUTOMATION — {projet} ({taux}%)") or \
@@ -210,21 +286,32 @@ def build_email_content(project, test_run, report):
 
 
 def send_run_report(tid):
-    """Envoyer le rapport d'un scénario terminé aux destinataires configurés.
+    """Envoyer le rapport d'un scénario terminé aux destinataires.
+
+    Destinataires prioritaires : ceux configurés sur le projet lui-même
+    (« Destinataires du rapport » à la création / modification du projet).
+    À défaut, retombe sur le destinataire global des Paramètres.
 
     No-op si l'envoi est désactivé ou si aucun destinataire n'est renseigné.
     Returns (sent, recipients)."""
     enabled = setting_bool("report_email_enabled", False)
     if not enabled:
         return 0, []
-    recipients = [r.strip() for r in re.split(r"[,;]", get_setting("report_email_recipient", "") or "")
-                  if r.strip()]
-    if not recipients:
-        return 0, []
 
     test = database.get_test_run(tid)
     if not test:
         return 0, []
+
+    project_recipients_raw = (getattr(test, "report_recipients", "") or "").strip()
+    recipients = [r.strip() for r in re.split(r"[,;]", project_recipients_raw)
+                  if r.strip()]
+    if not recipients:
+        recipients = [r.strip()
+                      for r in re.split(r"[,;]", get_setting("report_email_recipient", "") or "")
+                      if r.strip()]
+    if not recipients:
+        return 0, []
+
     results = [dict(r) if isinstance(r, dict) else r.__dict__
                for r in database.list_results(tid)]
     counters = reporter.counters_from_results(results)
