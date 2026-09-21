@@ -27,16 +27,22 @@
     {% if kind == "functionality" %}
     <h2>Fonctionnalité</h2>
     <form method="POST" action="{{ url_for('scenario_functionality_edit', pid=project.id, fid=func.id) }}">
-        <label for="name">Nom</label>
-        <input type="text" id="name" name="name" value="{{ func.name }}" required>
-        <label for="url">URL directe (optionnel — le générateur navigue vers cette URL)</label>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="name">Nom</label>
+                <input type="text" id="name" name="name" value="{{ func.name }}" required>
+            </div>
+            <div class="form-field">
+                <label for="path">Chemin de navigation <span class="text-muted text-small">(sous-dossiers)</span></label>
+                <input type="text" id="path" name="path" value="{{ func.path or '' }}"
+                       placeholder="Ex&nbsp;: Facturation > Contrats">
+            </div>
+        </div>
+        <span class="field-hint">Niveaux à traverser avant la fonctionnalité, séparés par &gt;.</span>
+        <label for="url">URL directe <span class="text-muted text-small">(optionnel — le générateur navigue vers cette URL)</span></label>
         <input type="text" id="url" name="url" value="{{ func.url or '' }}"
                placeholder="Ex&nbsp;: https://.../crm/clients">
         <span class="field-hint">Si renseignée, la génération et le scan naviguent directement vers cette adresse.</span>
-        <label for="path">Chemin de navigation (sous-dossiers, optionnel)</label>
-        <input type="text" id="path" name="path" value="{{ func.path or '' }}"
-               placeholder="Ex&nbsp;: Facturation > Contrats">
-        <span class="field-hint">Niveaux à traverser avant la fonctionnalité, séparés par &gt;.</span>
         <label for="description">Description <span class="text-muted text-small">(optionnel — les étapes sont gérées séparément)</span></label>
         <textarea id="description" name="description" rows="2" placeholder="Ex&nbsp;: Créer et valider une nouvelle catégorie">{{ func.description or '' }}</textarea>
         <div class="form-actions">
@@ -47,23 +53,34 @@
     {% else %}
     <h2>Étape</h2>
     <form method="POST" action="{{ url_for('scenario_step_edit', pid=project.id, sid=step.id) }}">
-        <label for="action_type">Action standard</label>
-        <select id="action_type" name="action_type">
-            <option value="">Libellé libre (texte)</option>
-            {% set atypes = {'NAVIGUER':'Naviguer','CLIQUEER':'Cliquer','REMPLIR':'Remplir','SELECTIONNER':'Sélectionner','COCHER':'Cocher','DECOCHER':'Décocher','RECHERCHER':'Rechercher','VERIFIER':'Vérifier','ATTENDRE':'Attendre','ECRAN':"Capture d'écran",'SELECTIONNER_LIGNE':'Sélectionner ligne'} %}
-            {% for key, label in atypes.items() %}
-            <option value="{{ key }}" {% if step.action_type == key %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
-        <label for="target">Cible <span class="text-muted text-small">(bouton, champ, URL…)</span></label>
-        <input type="text" id="target" name="target" value="{{ step.target or '' }}"
-               placeholder="Ex&nbsp;: Ajouter, Nom, /clients">
-        <label for="value">Valeur <span class="text-muted text-small">(si nécessaire)</span></label>
-        <input type="text" id="value" name="value" value="{{ step.value or '' }}"
-               placeholder="Ex&nbsp;: QA_TEST_2509">
-        <label for="expected">Résultat attendu <span class="text-muted text-small">(optionnel)</span></label>
-        <input type="text" id="expected" name="expected" value="{{ step.expected or '' }}"
-               placeholder="Ex&nbsp;: Élément créé, Page chargée">
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="action_type">Action standard</label>
+                <select id="action_type" name="action_type">
+                    <option value="">Libellé libre (texte)</option>
+                    {% set atypes = {'NAVIGUER':'Naviguer','CLIQUEER':'Cliquer','REMPLIR':'Remplir','SELECTIONNER':'Sélectionner','COCHER':'Cocher','DECOCHER':'Décocher','RECHERCHER':'Rechercher','VERIFIER':'Vérifier','ATTENDRE':'Attendre','ECRAN':"Capture d'écran",'SELECTIONNER_LIGNE':'Sélectionner ligne'} %}
+                    {% for key, label in atypes.items() %}
+                    <option value="{{ key }}" {% if step.action_type == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="target">Cible <span class="text-muted text-small">(bouton, champ, URL…)</span></label>
+                <input type="text" id="target" name="target" value="{{ step.target or '' }}"
+                       placeholder="Ex&nbsp;: Ajouter, Nom, /clients">
+            </div>
+
+            <div class="form-field">
+                <label for="value">Valeur <span class="text-muted text-small">(si nécessaire)</span></label>
+                <input type="text" id="value" name="value" value="{{ step.value or '' }}"
+                       placeholder="Ex&nbsp;: QA_TEST_2509">
+            </div>
+            <div class="form-field">
+                <label for="expected">Résultat attendu <span class="text-muted text-small">(optionnel)</span></label>
+                <input type="text" id="expected" name="expected" value="{{ step.expected or '' }}"
+                       placeholder="Ex&nbsp;: Élément créé, Page chargée">
+            </div>
+        </div>
         <label for="description">Description de l'étape</label>
         <textarea id="description" name="description" rows="3" required>{{ step.description }}</textarea>
         <div class="form-actions">
