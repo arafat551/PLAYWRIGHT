@@ -120,7 +120,7 @@
           </td>
           <td>{{ r.time_of_day }}</td>
           <td>{{ r.day_of_week|capitalize if r.day_of_week else 'Tous les jours' }}</td>
-          <td>{{ r.last_run_at or '—' }}</td>
+          <td>{{ r.last_run_at | dt_fr_short }}</td>
           <td>
             <span class="badge {{ 'badge-active' if r.is_active else 'badge-disabled' }}">
               {{ 'Actif' if r.is_active else 'Inactif' }}

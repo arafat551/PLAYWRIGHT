@@ -37,40 +37,43 @@
                     <span class="badge" style="font-size:.65rem;background:#e2e8f0;color:#475569">Désactivé</span>
                     {% endif %}
                 </td>
-                <td class="text-muted text-small">{{ u.created_at[:16] if u.created_at else '—' }}</td>
+                <td class="text-muted text-small">{{ u.created_at | dt_fr_short }}</td>
                 <td>
                     <div class="action-btns">
-                        <button type="button" class="action-btn view" title="Afficher le détail"
+                        <button type="button" class="action-btn view icon-only" title="Afficher le détail" aria-label="Afficher le détail"
                                 data-name="{{ u.full_name or '' }}"
                                 data-email="{{ u.email }}"
                                 data-role="{{ u.role }}"
-                                data-created="{{ u.created_at[:16] if u.created_at else '—' }}"
+                                data-created="{{ u.created_at | dt_fr_short }}"
                                 data-active="{{ 'Oui' if u.is_active else 'Non' }}"
                                 onclick="openView(this)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            Visualiser
                         </button>
-                        <button type="button" class="action-btn edit" title="Modifier"
+                        <button type="button" class="action-btn edit icon-only" title="Modifier" aria-label="Modifier"
                                 data-uid="{{ u.id }}"
                                 data-name="{{ u.full_name or '' }}"
                                 data-email="{{ u.email }}"
                                 data-role="{{ u.role }}"
                                 onclick="openEdit(this)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
-                            Modifier
                         </button>
                         {% if u.id != session.user_id and u.is_active %}
                         <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline" onsubmit="return confirm('Désactiver ce compte ? Il ne pourra plus se connecter.')">
-                            <button type="submit" class="action-btn danger" title="Désactiver">
+                            <button type="submit" class="action-btn danger icon-only" title="Désactiver" aria-label="Désactiver">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
-                                Désactiver
                             </button>
                         </form>
                         {% elif u.id != session.user_id and not u.is_active %}
                         <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline">
-                            <button type="submit" class="action-btn success" title="Réactiver">
+                            <button type="submit" class="action-btn success icon-only" title="Réactiver" aria-label="Réactiver">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
-                                Réactiver
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% if u.id != session.user_id %}
+                        <form method="POST" action="{{ url_for('user_delete', uid=u.id) }}" style="display:inline" onsubmit="return confirm('Supprimer définitivement ce compte et toutes ses données ? Cette action est irréversible.')">
+                            <button type="submit" class="action-btn danger icon-only" title="Supprimer" aria-label="Supprimer">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                             </button>
                         </form>
                         {% endif %}
@@ -170,6 +173,10 @@
                     <input type="password" name="new_password" id="eu_password" placeholder="Laisser vide pour ne pas changer" autocomplete="new-password">
                 </div>
                 <div class="settings-row">
+                    <label for="eu_password_confirm">Confirmer le nouveau mot de passe</label>
+                    <input type="password" name="new_password_confirm" id="eu_password_confirm" placeholder="Confirmez le nouveau mot de passe" autocomplete="new-password">
+                </div>
+                <div class="settings-row">
                     <label for="eu_role">Rôle</label>
                     <select name="role" id="eu_role">
                         <option value="qa">QA — exécute et analyse les tests</option>
@@ -224,6 +231,7 @@
         document.getElementById('eu_email').value = btn.dataset.email || '';
         document.getElementById('eu_role').value = btn.dataset.role === 'admin' ? 'admin' : 'qa';
         document.getElementById('eu_password').value = '';
+        document.getElementById('eu_password_confirm').value = '';
         document.getElementById('editError').classList.remove('show');
         openModal('editUserModal');
     };
@@ -232,6 +240,8 @@
     if (addForm) {
         addForm.addEventListener('submit', function(ev){
             ev.preventDefault();
+            var err = document.getElementById('addError');
+            err.classList.remove('show');
             var fd = new FormData(addForm);
             fetch('/users/new', {
                 method: 'POST',
@@ -241,7 +251,6 @@
                 try { return r.json().then(function(d){ return {status: r.status, data: d}; }); }
                 catch (e) { return {status: r.status, data: {}}; }
             }).then(function(res){
-                var err = document.getElementById('addError');
                 if (res.status !== 200) {
                     err.textContent = res.data.error || 'Une erreur est survenue';
                     err.classList.add('show');
@@ -264,6 +273,15 @@
     if (editForm) {
         editForm.addEventListener('submit', function(ev){
             ev.preventDefault();
+            var err = document.getElementById('editError');
+            err.classList.remove('show');
+            var pw = document.getElementById('eu_password').value;
+            var cpw = document.getElementById('eu_password_confirm').value;
+            if (pw && pw !== cpw) {
+                err.textContent = 'Les deux mots de passe ne correspondent pas';
+                err.classList.add('show');
+                return;
+            }
             var fd = new FormData(editForm);
             fetch('/users/' + fd.get('uid') + '/edit', {
                 method: 'POST',
@@ -272,7 +290,6 @@
             }).then(function(r){
                 return r.json().then(function(d){ return {status: r.status, data: d}; });
             }).then(function(res){
-                var err = document.getElementById('editError');
                 if (res.status !== 200) {
                     err.textContent = res.data.error || 'Une erreur est survenue';
                     err.classList.add('show');

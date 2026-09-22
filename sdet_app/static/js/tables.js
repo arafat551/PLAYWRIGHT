@@ -5,7 +5,13 @@
   var PAGE_SIZE = 10;
 
   function parseVal(txt) {
-    var t = (txt || "").replace(/\s+/g, "").trim();
+    var t0 = (txt || "").trim();
+    var fr = t0.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+    if (fr) {
+      return new Date(+fr[3], +fr[2] - 1, +fr[1],
+                      +(fr[4] || 0), +(fr[5] || 0)).getTime();
+    }
+    var t = t0.replace(/\s+/g, "");
     if (t === "" || t === "-") return null;
     if (/%$/.test(t)) {
       var p = parseFloat(t);
