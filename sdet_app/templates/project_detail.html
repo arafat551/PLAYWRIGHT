@@ -16,9 +16,7 @@
     </div>
     <div class="run-actions">
         <a class="btn-primary" href="{{ url_for('project_scenarios', pid=project.id) }}">Scénarios de test</a>
-        {% if user_role == 'admin' %}
         <a class="btn-sm btn-warning" href="{{ url_for('project_edit', pid=project.id) }}">Modifier</a>
-        {% endif %}
     </div>
 </div>
 
@@ -30,7 +28,6 @@
             <tr><th>URL</th><td><a href="{{ project.url }}" target="_blank">{{ project.url }}</a></td></tr>
             <tr><th>Environnement</th><td>{{ project.environment }}</td></tr>
             <tr><th>Authentification</th><td>{{ project.auth_type }}</td></tr>
-            <tr><th>Destinataires du rapport</th><td>{% if project.report_recipients %}{{ project.report_recipients }}{% else %}<span class="text-muted">Valeur globale des Paramètres</span>{% endif %}</td></tr>
         </table>
     </div>
     <div class="card">
@@ -38,7 +35,7 @@
         <table class="data-table">
             <tr><th>Statut</th><td><span class="badge badge-{{ 'active' if project.status=='active' else 'disabled' }}">{{ project.status }}</span></td></tr>
             <tr><th>Créé par</th><td>{{ project.created_by or '-' }}</td></tr>
-            <tr><th>Dernière modification</th><td>{{ project.updated_at | dt_fr_short }}</td></tr>
+            <tr><th>Dernière modification</th><td>{{ (project.updated_at or '')[:16] }}</td></tr>
             <tr><th>Pages découvertes</th><td>{{ pages_count }}</td></tr>
             <tr><th>Taux de réussite</th><td>{{ success_pct }}%</td></tr>
         </table>

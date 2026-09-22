@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS projects (
     comments TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
     owner_id INTEGER DEFAULT NULL,
-    report_recipients TEXT DEFAULT '',
     created_by TEXT DEFAULT '',
     updated_by TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
@@ -169,16 +168,6 @@ CREATE TABLE IF NOT EXISTS scheduled_runs (
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
-
-CREATE TABLE IF NOT EXISTS project_members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE (project_id, user_id),
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
 """
 
 
@@ -237,9 +226,6 @@ def init_db(path=None):
     pcols = [r[1] for r in db.execute("PRAGMA table_info(projects)").fetchall()]
     if "owner_id" not in pcols:
         db.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER DEFAULT NULL")
-    if "report_recipients" not in pcols:
-        db.execute(
-            "ALTER TABLE projects ADD COLUMN report_recipients TEXT DEFAULT ''")
     tcols = [r[1] for r in db.execute("PRAGMA table_info(test_runs)").fetchall()]
     if "owner_id" not in tcols:
         db.execute("ALTER TABLE test_runs ADD COLUMN owner_id INTEGER DEFAULT NULL")
@@ -309,13 +295,6 @@ def get_user(email):
 def get_user_by_id(uid):
     db = get_connection()
     row = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
-    db.close()
-    return User.from_row(row) if row else None
-
-
-def get_user_by_email(email):
-    db = get_connection()
-    row = db.execute("SELECT * FROM users WHERE email=?", (email.strip().lower(),)).fetchone()
     db.close()
     return User.from_row(row) if row else None
 
@@ -492,9 +471,7 @@ def list_scheduled_runs(owner_id=None):
         rows = db.execute(
             "SELECT s.*, p.name as project_name FROM scheduled_runs s "
             "JOIN projects p ON s.project_id=p.id "
-            "WHERE p.owner_id=? OR p.id IN "
-            "(SELECT project_id FROM project_members WHERE user_id=?) "
-            "ORDER BY s.id", (owner_id, owner_id)).fetchall()
+            "WHERE p.owner_id=? ORDER BY s.id", (owner_id,)).fetchall()
     else:
         rows = db.execute(
             "SELECT s.*, p.name as project_name FROM scheduled_runs s "
@@ -823,9 +800,8 @@ def list_projects(owner_id=None):
     where = ""
     args = ()
     if owner_id is not None:
-        where = (" WHERE p.owner_id=? OR p.id IN "
-                 "(SELECT project_id FROM project_members WHERE user_id=?)")
-        args = (owner_id, owner_id)
+        where = " WHERE p.owner_id=?"
+        args = (owner_id,)
     rows = db.execute(
         """SELECT p.*,
             (SELECT COUNT(*) FROM test_runs t WHERE t.project_id=p.id AND t.status='completed') as test_count,
@@ -837,50 +813,6 @@ def list_projects(owner_id=None):
             FROM projects p""" + where + " ORDER BY p.updated_at DESC", args).fetchall()
     db.close()
     return [dict(r) for r in rows]
-
-
-def list_project_members(pid):
-    db = get_connection()
-    rows = db.execute(
-        "SELECT pm.user_id, u.email, u.full_name FROM project_members pm "
-        "JOIN users u ON u.id=pm.user_id WHERE pm.project_id=? ORDER BY u.email",
-        (pid,)).fetchall()
-    db.close()
-    return [dict(r) for r in rows]
-
-
-def project_member_ids(pid):
-    return [m["user_id"] for m in list_project_members(pid)]
-
-
-def replace_project_members(pid, user_ids):
-    db = get_connection()
-    db.execute("DELETE FROM project_members WHERE project_id=?", (pid,))
-    seen = set()
-    for uid in (user_ids or []):
-        try:
-            uid = int(uid)
-        except (TypeError, ValueError):
-            continue
-        if uid in seen:
-            continue
-        seen.add(uid)
-        db.execute("INSERT OR IGNORE INTO project_members (project_id, user_id) VALUES (?,?)",
-                   (pid, uid))
-    db.commit()
-    db.close()
-
-
-def project_is_visible(pid, uid):
-    if uid is None:
-        return True
-    db = get_connection()
-    row = db.execute(
-        "SELECT id FROM projects WHERE id=? AND (owner_id=? OR id IN "
-        "(SELECT project_id FROM project_members WHERE user_id=?))",
-        (pid, uid, uid)).fetchone()
-    db.close()
-    return row is not None
 
 
 def get_project(pid):
@@ -895,11 +827,11 @@ def create_project(data, editor="", encrypt=None, decrypt=None, owner_id=None):
     cur = db.execute(
         """INSERT INTO projects
            (name, url, email, password_enc, auth_type, environment, comments,
-            owner_id, report_recipients, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            owner_id, created_by, updated_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (data["name"], data["url"], data["email"], encrypt(data["password"]),
          data["auth_type"], data["environment"], data["comments"],
-         owner_id, data.get("report_recipients", ""), editor, editor))
+         owner_id, editor, editor))
     db.commit()
     pid = cur.lastrowid
     db.close()
@@ -915,11 +847,11 @@ def update_project(pid, data, editor="", encrypt=None, keep_password=None):
         pw_enc = proj["password_enc"] if proj else ""
     db.execute(
         """UPDATE projects SET name=?, url=?, email=?, password_enc=?,
-           auth_type=?, environment=?, comments=?, report_recipients=?,
-           updated_by=?, updated_at=datetime('now') WHERE id=?""",
+           auth_type=?, environment=?, comments=?, updated_by=?,
+           updated_at=datetime('now') WHERE id=?""",
         (data["name"], data["url"], data["email"], pw_enc,
          data["auth_type"], data["environment"], data["comments"],
-         data.get("report_recipients", ""), editor, pid))
+         editor, pid))
     db.commit()
     db.close()
 
@@ -1015,14 +947,13 @@ def create_test_run(pid, run_type, launched_by="", plan=None, owner_id=None):
 def get_test_run(tid, owner_id=None):
     db = get_connection()
     sql = """SELECT t.*, p.name as project_name, p.id as project_id, p.url as project_url,
-           p.environment as project_env, p.report_recipients as report_recipients
+           p.environment as project_env
            FROM test_runs t JOIN projects p ON t.project_id = p.id
            WHERE t.id=?"""
     args = [tid]
     if owner_id is not None:
-        sql += (" AND (t.owner_id=? OR t.project_id IN "
-                "(SELECT project_id FROM project_members WHERE user_id=?))")
-        args += (owner_id,)
+        sql += " AND t.owner_id=?"
+        args.append(owner_id)
     row = db.execute(sql, args).fetchone()
     db.close()
     return TestRun.from_row(row) if row else None
@@ -1036,9 +967,8 @@ def list_test_runs(pid=None, owner_id=None):
                WHERE t.project_id=?"""
         args = [pid]
         if owner_id is not None:
-            sql += (" AND (t.owner_id=? OR t.project_id IN "
-                    "(SELECT project_id FROM project_members WHERE user_id=?))")
-            args += (owner_id, owner_id)
+            sql += " AND t.owner_id=?"
+            args.append(owner_id)
         sql += " ORDER BY t.started_at DESC"
         rows = db.execute(sql, args).fetchall()
     else:
@@ -1046,9 +976,8 @@ def list_test_runs(pid=None, owner_id=None):
                JOIN projects p ON t.project_id=p.id"""
         args = []
         if owner_id is not None:
-            sql += (" WHERE (t.owner_id=? OR t.project_id IN "
-                    "(SELECT project_id FROM project_members WHERE user_id=?))")
-            args += (owner_id, owner_id)
+            sql += " WHERE t.owner_id=?"
+            args.append(owner_id)
         sql += " ORDER BY t.started_at DESC"
         rows = db.execute(sql, args).fetchall()
     db.close()
@@ -1269,32 +1198,20 @@ def dashboard_metrics(owner_id=None):
         return db.execute(sql, args).fetchone()[0]
 
     if owner_id is not None:
-        total_projects = one(
-            "SELECT COUNT(*) FROM projects WHERE owner_id=? OR id IN "
-            "(SELECT project_id FROM project_members WHERE user_id=?)",
-            (owner_id, owner_id))
-        active_projects = one(
-            "SELECT COUNT(*) FROM projects WHERE status='active' AND "
-            "(owner_id=? OR id IN (SELECT project_id FROM project_members WHERE user_id=?))",
-            (owner_id, owner_id))
-        total_tests = one(
-            "SELECT COUNT(*) FROM test_runs WHERE status='completed' AND "
-            "(owner_id=? OR project_id IN (SELECT project_id FROM project_members WHERE user_id=?))",
-            (owner_id, owner_id))
+        total_projects = one("SELECT COUNT(*) FROM projects WHERE owner_id=?", (owner_id,))
+        active_projects = one("SELECT COUNT(*) FROM projects WHERE status='active' AND owner_id=?", (owner_id,))
+        total_tests = one("SELECT COUNT(*) FROM test_runs WHERE status='completed' AND owner_id=?", (owner_id,))
     else:
         total_projects = one("SELECT COUNT(*) FROM projects")
         active_projects = one("SELECT COUNT(*) FROM projects WHERE status='active'")
         total_tests = one("SELECT COUNT(*) FROM test_runs WHERE status='completed'")
 
-    owner_clause = (" AND (owner_id=? OR id IN (SELECT project_id FROM "
-                    "project_members WHERE user_id=?))" if owner_id is not None else "")
-    owner_run_clause = (" AND (t.owner_id=? OR t.project_id IN (SELECT project_id FROM "
-                        "project_members WHERE user_id=?))" if owner_id is not None else "")
-    owner_args = (owner_id, owner_id) if owner_id is not None else ()
-    total_passed = one(f"SELECT COALESCE(SUM(passed),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
-    total_failed = one(f"SELECT COALESCE(SUM(failed),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
-    total_warning = one(f"SELECT COALESCE(SUM(warning),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
-    total_skipped = one(f"SELECT COALESCE(SUM(skipped),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
+    owner_clause = " AND owner_id=?" if owner_id is not None else ""
+    owner_args = (owner_id,) if owner_id is not None else ()
+    total_passed = one(f"SELECT COALESCE(SUM(passed),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_failed = one(f"SELECT COALESCE(SUM(failed),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_warning = one(f"SELECT COALESCE(SUM(warning),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
+    total_skipped = one(f"SELECT COALESCE(SUM(skipped),0) FROM test_runs WHERE status='completed'{owner_clause}", owner_args)
     total_all = total_passed + total_failed + total_warning + total_skipped
     success_rate = round((total_passed / total_all) * 100) if total_all > 0 else 0
 
@@ -1302,8 +1219,8 @@ def dashboard_metrics(owner_id=None):
         """SELECT t.*, p.name as project_name FROM test_runs t
            JOIN projects p ON t.project_id=p.id
            {owner} ORDER BY t.started_at DESC LIMIT 3""".format(
-            owner="WHERE " + owner_run_clause[5:] if owner_id is not None else ""),
-        owner_args if owner_id is not None else ()).fetchall()
+            owner="WHERE t.owner_id=?" if owner_id is not None else ""),
+        (owner_id,) if owner_id is not None else ()).fetchall()
 
     per_project = db.execute(
         """SELECT p.name as name,
@@ -1317,9 +1234,8 @@ def dashboard_metrics(owner_id=None):
            {owner}
            GROUP BY p.id
            ORDER BY p.name""".format(
-            owner="WHERE (p.owner_id=? OR p.id IN (SELECT project_id FROM "
-                  "project_members WHERE user_id=?))" if owner_id is not None else ""),
-        owner_args if owner_id is not None else ()).fetchall()
+            owner="WHERE p.owner_id=?" if owner_id is not None else ""),
+        (owner_id,) if owner_id is not None else ()).fetchall()
     db.close()
 
     pp_list = []

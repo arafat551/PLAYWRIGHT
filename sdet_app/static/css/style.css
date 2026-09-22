@@ -391,8 +391,6 @@ main.with-sidebar {
 .action-toggle:hover { background: #eef1f7; border-color: #c3cad9; color: var(--text); transform: translateY(-1px); }
 .action-activate { background: var(--success-050); border-color: #bbf7d0; color: var(--success-600); }
 .action-activate:hover { background: #dcfce7; border-color: var(--success); color: var(--success-600); transform: translateY(-1px); }
-.action-members { background: var(--success-050); border-color: #bbf7d0; color: var(--success); }
-.action-members:hover { background: #dcfce7; border-color: var(--success); color: var(--success); transform: translateY(-1px); }
 
 .form-actions {
   margin-top: 1.5rem;
@@ -436,56 +434,6 @@ textarea { resize: vertical; min-height: 96px; }
 select { background: var(--surface); cursor: pointer; }
 
 .form-card { max-width: 640px; margin: 0 auto; }
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 1rem;
-  align-items: start;
-}
-.form-field {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.form-field label {
-  min-height: 2.5em;
-  margin-bottom: 0.25rem;
-  line-height: 1.25;
-}
-.form-field input,
-.form-field select,
-.form-field textarea { width: 100%; }
-@media (max-width: 640px) {
-  .form-grid { grid-template-columns: 1fr; }
-}
-
-.qa-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-.qa-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.8rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  font-size: 0.85rem;
-  color: var(--text);
-  background: var(--surface);
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.qa-chip:hover { border-color: var(--accent); }
-.qa-chip input { accent-color: var(--accent); cursor: pointer; }
-.qa-chip:has(input:checked) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-}
-.form-card .qa-picker + .text-muted { margin-top: 0.15rem; }
 
 .settings-form { max-width: 760px; }
 .settings-grid {
@@ -495,13 +443,9 @@ select { background: var(--surface); cursor: pointer; }
   align-items: stretch;
   margin-bottom: 1.4rem;
 }
-.settings-card { margin-bottom: 0; display: flex; flex-direction: column; }
-/* La carte "exploration" a moins de champs que la carte e-mail : on répartit
-   ses lignes sur toute la hauteur pour équilibrer visuellement la grille. */
-.settings-card--engine .settings-row { flex: 1 1 auto; }
+.settings-card { margin-bottom: 0; }
 @media (max-width: 1100px) {
   .settings-grid { grid-template-columns: 1fr; }
-  .settings-card--engine .settings-row { flex: 0 0 auto; }
 }
 .settings-group-subtitle { margin: -0.6rem 0 0.8rem; }
 .settings-section-title {
@@ -2562,7 +2506,6 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   text-decoration: none;
 }
 .action-btn:hover { background: #f1f5f9; }
-.action-btn.icon-only { padding: 0.35rem; line-height: 0; }
 .action-btn.view { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
 .action-btn.view:hover { background: #dbeafe; }
 .action-btn.edit { color: #a16207; border-color: #fde047; background: #fefce8; }
@@ -2873,105 +2816,3 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   border-color: var(--danger);
   color: var(--danger-600);
 }
-
-/* ==========================================================================
-   Console d'exécution en direct (pages TEST EN COURS / Parcours / Exploration)
-   ========================================================================== */
-
-.run-console {
-  border: 1px solid #c7d2fe;
-  background: linear-gradient(180deg, #eef2ff, #ffffff);
-  border-radius: 16px;
-  padding: 16px 18px 14px;
-  margin: 1rem 0;
-  box-shadow: 0 10px 28px rgba(79, 70, 229, 0.10);
-  animation: scanInlineIn 0.3s ease;
-}
-.run-console-level {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.live-dot {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: var(--brand);
-  animation: scanPulse 1.2s ease infinite;
-  flex-shrink: 0;
-}
-.run-console-spin {
-  width: 18px;
-  height: 18px;
-  border: 3px solid var(--brand);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-.run-console-title {
-  font-weight: 800;
-  letter-spacing: 2px;
-  font-size: 1rem;
-  color: var(--brand);
-  text-transform: uppercase;
-}
-.badge-live {
-  background: #ede9fe;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  animation: pulse 1.4s infinite;
-}
-.run-console-sub {
-  margin: 8px 0 10px;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-.run-console .progress-head {
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
-}
-.progress-fill-live {
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgba(255, 255, 255, 0.28) 0 8px,
-    transparent 8px 16px
-  );
-  animation: progressStripes 0.9s linear infinite;
-}
-@keyframes progressStripes {
-  to { background-position: 16px 0; }
-}
-.run-live-feed {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 12px 0 2px;
-  border-top: 1px dashed #c7d2fe;
-  padding-top: 12px;
-  max-height: 132px;
-  overflow-y: auto;
-}
-.run-live-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.82rem;
-  color: var(--text);
-}
-.run-live-func {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.run-console-actions {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed #c7d2fe;
-}
-.run-console-actions form { margin: 0; }
