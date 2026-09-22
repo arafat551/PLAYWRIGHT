@@ -98,36 +98,31 @@ def _get_scan(key):
 # Jinja filters + helpers
 # ---------------------------------------------------------------------------
 
-_MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
-         "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+def _fmt_date(s):
+    """Format any stored date as day/month/year: '11/09/2026' or
+    '11/09/2026 14:30' when a time is present."""
+    if not s:
+        return "—"
+    raw = str(s)[:19].replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        return dt.strftime("%d/%m/%Y %H:%M") if " " in raw else dt.strftime("%d/%m/%Y")
+    return str(s)
 
 
 @app.template_filter("dt_fr")
 def dt_fr(s):
-    """Format a date string in French: '11 septembre 2026 à 14h30'."""
-    if not s:
-        return "—"
-    s = str(s)[:19].replace("T", " ")
-    try:
-        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return str(s)
-    return f"{dt.day} {_MOIS[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
+    """Day/month/year date: '11/09/2026 14:30'."""
+    return _fmt_date(s)
 
 
 @app.template_filter("dt_fr_short")
 def dt_fr_short(s):
-    """Shorter French date: '11 sept. 2026 14h30'."""
-    if not s:
-        return "—"
-    s = str(s)[:19].replace("T", " ")
-    try:
-        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return str(s)
-    short_mois = ["janv.", "févr.", "mars", "avr.", "mai", "juin",
-                  "juil.", "août", "sept.", "oct.", "nov.", "déc."]
-    return f"{dt.day} {short_mois[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
+    """Day/month/year date: '11/09/2026 14:30'."""
+    return _fmt_date(s)
 
 
 @app.context_processor

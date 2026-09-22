@@ -32,7 +32,7 @@
                 <td class="text-truncate"><a href="{{ p.url }}" target="_blank">{{ p.url }}</a></td>
                 <td>{{ {"none":"Aucune","simple":"Simple"}.get(p.auth_type, p.auth_type) }}</td>
                 <td>{{ p.environment }}</td>
-                <td>{{ (p.last_test_date or '-')[:16] }}</td>
+                <td>{{ p.last_test_date | dt_fr_short }}</td>
                 <td>
                     {% if p.total_count and p.total_count > 0 %}
                         {{ ((p.pass_count / p.total_count) * 100)|round(0)|int }}%

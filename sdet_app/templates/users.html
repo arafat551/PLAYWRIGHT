@@ -37,14 +37,14 @@
                     <span class="badge" style="font-size:.65rem;background:#e2e8f0;color:#475569">Désactivé</span>
                     {% endif %}
                 </td>
-                <td class="text-muted text-small">{{ u.created_at[:16] if u.created_at else '—' }}</td>
+                <td class="text-muted text-small">{{ u.created_at | dt_fr_short }}</td>
                 <td>
                     <div class="action-btns">
                         <button type="button" class="action-btn view icon-only" title="Afficher le détail" aria-label="Afficher le détail"
                                 data-name="{{ u.full_name or '' }}"
                                 data-email="{{ u.email }}"
                                 data-role="{{ u.role }}"
-                                data-created="{{ u.created_at[:16] if u.created_at else '—' }}"
+                                data-created="{{ u.created_at | dt_fr_short }}"
                                 data-active="{{ 'Oui' if u.is_active else 'Non' }}"
                                 onclick="openView(this)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

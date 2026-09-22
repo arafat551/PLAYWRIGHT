@@ -13,16 +13,17 @@
     </div>
 </div>
 
-<div class="info-banner">
-    Les valeurs ci-dessous complètent le fichier <code>.env</code>. Les clés de sécurité
-    (secret, base de données, mot de passe admin, clé OpenAI) restent volontairement dans
-    <code>.env</code> et jamais exposées dans l'interface.
-</div>
+ <div class="info-banner">
+     Tous les réglages de cette page sont enregistrés dans l'application et appliqués
+     dès le prochain scan ou test. Les secrets techniques (clé de sécurité, base de
+     données, mot de passe administrateur) restent dans le fichier <code>.env</code> et
+     ne sont jamais affichés ni modifiables ici.
+ </div>
 
 <form method="POST">
     <div class="settings-grid">
         {% for group_key, group_title, group_subtitle, group_fields in groups %}
-        <div class="card settings-card">
+        <div class="card settings-card settings-card--{{ group_key }}">
             <h2>{{ group_title }}</h2>
             <p class="text-muted text-small settings-group-subtitle">{{ group_subtitle }}</p>
             {% for key, label, ftype, help in group_fields %}
