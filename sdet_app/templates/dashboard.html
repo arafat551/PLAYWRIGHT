@@ -17,38 +17,39 @@
     <div class="stat-card">
         <div class="stat-number">{{ m.total_projects }}</div>
         <div class="stat-label">Projets</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">tous statuts confondus</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Nombre total de projets enregistrés</div>
     </div>
     <div class="stat-card">
         <div class="stat-number">{{ m.active_projects }}</div>
         <div class="stat-label">Projets actifs</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">en cours de test</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Projets activés, prêts à être testés</div>
     </div>
     <div class="stat-card">
         <div class="stat-number">{{ m.total_tests }}</div>
-        <div class="stat-label">Exécutions terminées</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">nombre de lancements</div>
+        <div class="stat-label">Tests terminés</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Lancements de tests arrivés à leur fin</div>
     </div>
     <div class="stat-card stat-success">
         <div class="stat-number">{{ m.total_passed }}</div>
-        <div class="stat-label">Étapes PASS</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">toutes exécutions</div>
+        <div class="stat-label">Étapes réussies (PASS)</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Sur toutes les exécutions terminées</div>
     </div>
     <div class="stat-card stat-danger">
         <div class="stat-number">{{ m.total_failed }}</div>
-        <div class="stat-label">Étapes FAIL</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">toutes exécutions</div>
+        <div class="stat-label">Étapes en échec (FAIL)</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Sur toutes les exécutions terminées</div>
     </div>
     <div class="stat-card stat-warning">
-        <div class="stat-number">{{ m.success_rate }}%</div>
+        <div class="stat-number">{% if m.success_rate is not none %}{{ m.success_rate }}%{% else %}<span class="text-muted">—</span>{% endif %}</div>
         <div class="stat-label">Taux de réussite global</div>
-        <div class="text-muted text-small" style="margin-top:.15rem">PASS / total étapes</div>
+        <div class="text-muted text-small" style="margin-top:.15rem">Part d'étapes réussies (PASS) sur le total</div>
     </div>
 </div>
 
 <div class="charts-grid">
     <div class="card">
         <h2>Répartition des résultats</h2>
+        <p class="text-muted text-small" style="margin-bottom:.8rem">Réussites, échecs, avertissements et étapes ignorées de toutes vos exécutions terminées</p>
         <div class="chart-card donut-compact">
             <canvas id="donut"></canvas>
         </div>
@@ -73,7 +74,8 @@
                     {% else %}
                     <span class="recent-run-pct text-muted">—</span>
                     {% endif %}
-                    <span class="badge badge-{{ t.status }}" style="font-size:.68rem">{{ t.status }}</span>
+                    {% set st_labels = {'running':'En cours','completed':'Terminé','failed':'Échec','waiting_otp':'OTP attendu','otp_submitted':'OTP envoyé','cancelled':'Annulé'} %}
+                    <span class="badge badge-{{ t.status }}" style="font-size:.68rem">{{ st_labels.get(t.status, t.status) }}</span>
                     <a href="{{ url_for('report_detail', tid=t.id) }}" class="recent-run-link">Rapport →</a>
                 </div>
                 {% endfor %}
@@ -89,7 +91,7 @@
 {% if m.per_project %}
 <div class="card">
     <h2>Taux de réussite par projet</h2>
-    <p class="text-muted text-small" style="margin-bottom:.8rem">Pour chaque projet : taux de réussite des étapes (échelle 0-100%)</p>
+    <p class="text-muted text-small" style="margin-bottom:.8rem">Pour chaque projet : pourcentage d'étapes réussies. Si aucun test n'a encore été fait, le projet affiche « aucun test ».</p>
     <div class="vbar-chart-wrap">
         <div class="vbar-axis">
             <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
@@ -100,14 +102,16 @@
             {% for chunk in m.per_project | batch(per_page) %}
             <div class="vbar-page">
                 {% for p in chunk %}
-                <div class="vbar" title="{{ p.name }} — {{ p.runs }} exécution(s), {{ p.success_rate }}%">
+                <div class="vbar" title="{{ p.name }} — {{ p.runs }} exécution(s) terminée(s){% if p.total > 0 %}, {{ p.success_rate }}% de réussite{% else %}, aucun test effectué{% endif %}">
                     <div class="vbar-track">
+                        {% if p.total > 0 %}
                         <div class="vbar-fill {% if p.success_rate >= 80 %}rate-high{% elif p.success_rate >= 50 %}rate-mid{% else %}rate-low{% endif %}"
                              style="height:{{ p.success_rate }}%">
                             <span>{{ p.success_rate }}%</span>
                         </div>
+                        {% endif %}
                     </div>
-                    <div class="vbar-name">{{ p.name }}</div>
+                    <div class="vbar-name">{{ p.name }}{% if p.total == 0 %} <span class="text-muted text-small">aucun test</span>{% endif %}</div>
                 </div>
                 {% endfor %}
             </div>

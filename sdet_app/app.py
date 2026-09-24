@@ -273,9 +273,6 @@ def projects():
 @app.route("/projects/new", methods=["GET", "POST"])
 @login_required
 def project_new():
-    if session.get("user_role") != "admin":
-        flash("Seul un administrateur peut créer un projet", "error")
-        return redirect(url_for("projects"))
     if request.method == "POST":
         data = _project_form()
         errors = _validate_project(data)
@@ -310,9 +307,6 @@ def project_detail(pid):
 @app.route("/projects/<int:pid>/edit", methods=["GET", "POST"])
 @login_required
 def project_edit(pid):
-    if session.get("user_role") != "admin":
-        flash("Seul un administrateur peut modifier un projet", "error")
-        return redirect(url_for("projects"))
     project = database.get_project(pid)
     if not project:
         flash("Projet introuvable", "error")
@@ -333,10 +327,9 @@ def project_edit(pid):
 
 
 @app.route("/projects/<int:pid>/members", methods=["GET", "POST"])
-@admin_required
+@login_required
 def project_members(pid):
-    """Administrator-only page: grant/revoke project access for automation
-    users (QA). Admins already see every project."""
+    """Grant/revoke project access for automation users (QA)."""
     project = database.get_project(pid)
     if not project:
         flash("Projet introuvable", "error")

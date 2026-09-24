@@ -1296,7 +1296,7 @@ def dashboard_metrics(owner_id=None):
     total_warning = one(f"SELECT COALESCE(SUM(warning),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
     total_skipped = one(f"SELECT COALESCE(SUM(skipped),0) FROM test_runs t WHERE t.status='completed'{owner_run_clause}", owner_args)
     total_all = total_passed + total_failed + total_warning + total_skipped
-    success_rate = round((total_passed / total_all) * 100) if total_all > 0 else 0
+    success_rate = round((total_passed / total_all) * 100) if total_all > 0 else None
 
     recent = db.execute(
         """SELECT t.*, p.name as project_name FROM test_runs t
@@ -1333,7 +1333,7 @@ def dashboard_metrics(owner_id=None):
             "warning": p["warning"],
             "skipped": p["skipped"],
             "total": total,
-            "success_rate": round((p["passed"] / total) * 100) if total > 0 else 0,
+            "success_rate": round((p["passed"] / total) * 100) if total > 0 else None,
         })
 
     return {

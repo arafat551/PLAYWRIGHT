@@ -1,6 +1,7 @@
 """Tests for project ownership / multi-user isolation:
-- an administrator creates projects and assigns one or more QAs;
-- QAs cannot create projects and only see the projects assigned to them."""
+- a QA can create projects and assign one or more QAs to them;
+- QAs only see the projects assigned to them;
+- admins manage global settings and users (QA excluded)."""
 
 
 def _login(client, email, pw):
@@ -29,17 +30,18 @@ def _make_project(client, name, assign=()):
     return pid
 
 
-def test_qa_cannot_create_project(client, two_users):
+def test_qa_can_create_project(client, two_users):
     alice, _ = two_users
     _login(client, alice, "pwA")
     r = client.post("/projects/new", data={
-        "name": "ProjetInterdit", "url": "https://no.test", "email": "a@b.test",
+        "name": "ProjetQA", "url": "https://qa.test", "email": "a@b.test",
         "password": "pw", "auth_type": "simple", "environment": "STAGING",
         "comments": ""}, follow_redirects=True)
-    assert "administrateur" in r.get_data(as_text=True).lower()
+    assert "créé avec succès" in r.get_data(as_text=True).lower()
     from sdet_app import database
-    names = [p["name"] for p in database.list_projects()]
-    assert "ProjetInterdit" not in names
+    proj = [p for p in database.list_projects() if p["name"] == "ProjetQA"]
+    assert len(proj) == 1
+    assert proj[0]["owner_id"] == _uid(alice)
 
 
 def test_qa_only_sees_assigned_projects(client, two_users):
@@ -98,28 +100,25 @@ def test_qa_cannot_delete_project(client, _init_db):
     assert database.get_project(pid_b) is None
 
 
-def test_members_page_admin_only(client, two_users):
+def test_qa_can_manage_project_members(client, two_users):
     alice, bob = two_users
-    pid = _make_project(client, "ProjetAcces")
+    pid = _make_project(client, "ProjetAcces", assign=(alice,))
     _login(client, alice, "pwA")
-    assert client.get(f"/projects/{pid}/members").status_code == 302
-    _login(client, "admin@example.com", "admin123")
     body = client.get(f"/projects/{pid}/members").get_data(as_text=True)
     assert "Accès au projet" in body
-    assert alice in body and bob in body
-    uids = [_uid(e) for e in (alice, bob)]
-    client.post(f"/projects/{pid}/members", data={"grant": uids},
+    assert bob in body
+    client.post(f"/projects/{pid}/members", data={"grant": [_uid(bob)]},
                 follow_redirects=True)
     from sdet_app import database
-    assert set(database.project_member_ids(pid)) == set(uids)
+    assert set(database.project_member_ids(pid)) == {_uid(bob)}
 
 
-def test_members_button_visible_for_admin_only(client, two_users):
+def test_members_button_visible_for_all(client, two_users):
     alice, _ = two_users
-    _make_project(client, "ProjetBtnAcces")
+    _make_project(client, "ProjetBtnAcces", assign=(alice,))
     _login(client, alice, "pwA")
     body = client.get("/projects").get_data(as_text=True)
-    assert "Gérer les accès" not in body
+    assert "Gérer les accès" in body
     _login(client, "admin@example.com", "admin123")
     body = client.get("/projects").get_data(as_text=True)
     assert "Gérer les accès" in body
