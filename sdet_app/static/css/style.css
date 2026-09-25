@@ -393,9 +393,9 @@ main.with-sidebar {
 .action-activate:hover { background: #dcfce7; border-color: var(--success); color: var(--success-600); transform: translateY(-1px); }
 
 .form-actions {
-  margin-top: 1.5rem;
+  margin-top: 1rem;
   display: flex;
-  gap: 0.8rem;
+  gap: 0.7rem;
   justify-content: flex-end;
 }
 
@@ -405,15 +405,15 @@ main.with-sidebar {
    Forms
    ========================================================================== */
 
-label { display: block; margin: 1.1rem 0 0.35rem; font-weight: 600; font-size: 0.84rem; color: var(--text-2); }
+label { display: block; margin: 0.8rem 0 0.25rem; font-weight: 600; font-size: 0.82rem; color: var(--text-2); }
 
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
 input[type="number"], input[type="time"], input[type="date"], select, textarea {
   width: 100%;
-  padding: 0.6rem 0.8rem;
+  padding: 0.5rem 0.7rem;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-family: inherit;
   color: var(--text);
   background: var(--surface);
@@ -430,10 +430,38 @@ input[type="date"]:focus, select:focus, textarea:focus {
   background: #fff;
 }
 
-textarea { resize: vertical; min-height: 96px; }
+textarea { resize: vertical; min-height: 80px; }
 select { background: var(--surface); cursor: pointer; }
 
-.form-card { max-width: 640px; margin: 0 auto; }
+.form-card { max-width: 640px; margin: 0 auto; padding: 1.2rem 1.2rem 0.8rem; }
+
+
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+.form-grid .col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.form-grid .field-long {
+  width: 100%;
+}
+
+.form-grid .field-full {
+  width: 100%;
+}
+
 
 .settings-form { max-width: 760px; }
 .settings-grid {
@@ -761,10 +789,10 @@ input[type="checkbox"] { accent-color: var(--brand); cursor: pointer; }
 
 .field-hint {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   color: var(--muted);
-  margin-top: 0.2rem;
-  line-height: 1.35;
+  margin-top: 0.15rem;
+  line-height: 1.3;
 }
 .required-hint {
   color: var(--warning);
