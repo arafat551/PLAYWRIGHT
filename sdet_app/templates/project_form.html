@@ -15,49 +15,34 @@
 
 <div class="card form-card">
     <form method="POST">
-        <div class="form-grid">
-            <div class="form-field">
-                <label>Nom du projet *</label>
-                <input type="text" name="name" required value="{{ project.name if project else '' }}" placeholder="Ex : Gestion Commerciale">
-            </div>
-            <div class="form-field">
-                <label>Environnement</label>
-                <select name="environment">
-                    {% for e in ['STAGING','PRODUCTION'] %}
-                    <option value="{{ e }}" {{ 'selected' if project and project.environment==e else '' }}>{{ e }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+        <label>Nom du projet *</label>
+        <input type="text" name="name" required value="{{ project.name if project else '' }}">
 
-            <div class="form-field">
-                <label>URL *</label>
-                <input type="url" name="url" required value="{{ project.url if project else '' }}" placeholder="https://mon-app.example.com">
-            </div>
-            <div class="form-field">
-                <label>Type d'authentification</label>
-                <select name="auth_type">
-                    <option value="simple" {{ 'selected' if project and project.auth_type=='simple' else '' }}>Simple</option>
-                    <option value="none" {{ 'selected' if project and project.auth_type=='none' else '' }}>Aucune</option>
-                    <option value="2fa" {{ 'selected' if project and project.auth_type=='2fa' else '' }}>2FA / OTP</option>
-                </select>
-            </div>
+        <label>URL *</label>
+        <input type="url" name="url" required value="{{ project.url if project else '' }}" placeholder="https://mon-app.example.com">
 
-            <div class="form-field">
-                <label>Email</label>
-                <input type="email" name="email" value="{{ project.email if project else '' }}">
-            </div>
-            <div class="form-field">
-                <label>Mot de passe</label>
-                <input type="password" name="password" value="" placeholder="{{ 'Laisser vide pour conserver' if editing else '********' }}">
-            </div>
-        </div>
+        <label>Email</label>
+        <input type="email" name="email" value="{{ project.email if project else '' }}">
+
+        <label>Mot de passe</label>
+        <input type="password" name="password" value="" placeholder="{{ 'Laisser vide pour conserver' if editing else '********' }}">
+
+        <label>Type d'authentification</label>
+        <select name="auth_type">
+            <option value="simple" {{ 'selected' if project and project.auth_type=='simple' else '' }}>Simple</option>
+            <option value="none" {{ 'selected' if project and project.auth_type=='none' else '' }}>Aucune</option>
+            <option value="2fa" {{ 'selected' if project and project.auth_type=='2fa' else '' }}>2FA / OTP</option>
+        </select>
+
+        <label>Environnement</label>
+        <select name="environment">
+            {% for e in ['STAGING','PRODUCTION'] %}
+            <option value="{{ e }}" {{ 'selected' if project and project.environment==e else '' }}>{{ e }}</option>
+            {% endfor %}
+        </select>
 
         <label>Commentaires / Instructions QA</label>
         <textarea name="comments" rows="4" placeholder="Tester tous les modules. Ne pas effectuer de paiement réel. Ne pas supprimer les utilisateurs existants...">{{ project.comments if project else '' }}</textarea>
-
-        <label>Destinataires du rapport <span class="text-muted font-normal">(e-mails)</span></label>
-        <input type="text" name="report_recipients" placeholder="rapport-equipe@exemple.com, chef-projet@exemple.com" value="{{ project.report_recipients if project else '' }}">
-        <span class="text-muted text-small">Adresses e-mail séparées par des virgules ou des points-virgules. Ces personnes recevront le rapport à la fin de chaque scénario. Laissez vide pour utiliser la valeur globale des Paramètres.</span>
 
         <div class="form-actions">
             <a href="{{ url_for('projects') }}" class="btn-secondary">Annuler</a>

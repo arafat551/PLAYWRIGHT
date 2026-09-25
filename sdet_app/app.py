@@ -98,31 +98,36 @@ def _get_scan(key):
 # Jinja filters + helpers
 # ---------------------------------------------------------------------------
 
-def _fmt_date(s):
-    """Format any stored date as day/month/year: '11/09/2026' or
-    '11/09/2026 14:30' when a time is present."""
-    if not s:
-        return "—"
-    raw = str(s)[:19].replace("T", " ")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(raw, fmt)
-        except ValueError:
-            continue
-        return dt.strftime("%d/%m/%Y %H:%M") if " " in raw else dt.strftime("%d/%m/%Y")
-    return str(s)
+_MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
+         "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
 
 
 @app.template_filter("dt_fr")
 def dt_fr(s):
-    """Day/month/year date: '11/09/2026 14:30'."""
-    return _fmt_date(s)
+    """Format a date string in French: '11 septembre 2026 à 14h30'."""
+    if not s:
+        return "—"
+    s = str(s)[:19].replace("T", " ")
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return str(s)
+    return f"{dt.day} {_MOIS[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
 
 
 @app.template_filter("dt_fr_short")
 def dt_fr_short(s):
-    """Day/month/year date: '11/09/2026 14:30'."""
-    return _fmt_date(s)
+    """Shorter French date: '11 sept. 2026 14h30'."""
+    if not s:
+        return "—"
+    s = str(s)[:19].replace("T", " ")
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return str(s)
+    short_mois = ["janv.", "févr.", "mars", "avr.", "mai", "juin",
+                  "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+    return f"{dt.day} {short_mois[dt.month - 1]} {dt.year} à {dt:%H}h{dt:%M:02d}"
 
 
 @app.context_processor
@@ -190,9 +195,9 @@ def _guard_ownership():
     return None
 
 
-def _can_delete(owner_id=None):
-    """Deletion is reserved to administrators."""
-    return session.get("user_role") == "admin"
+def _can_delete(owner_id):
+    """Deletion is always limited to the owner, even for admins."""
+    return owner_id is not None and owner_id == _own_uid()
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +316,6 @@ def project_edit(pid):
     if not project:
         flash("Projet introuvable", "error")
         return redirect(url_for("projects"))
-    qa_users = [u for u in database.list_users() if u.role != "admin"]
     if request.method == "POST":
         data = _project_form()
         errors = _validate_project(data, editing=True)
@@ -347,9 +351,6 @@ def project_members(pid):
 @app.route("/projects/<int:pid>/toggle", methods=["POST"])
 @login_required
 def project_toggle(pid):
-    if session.get("user_role") != "admin":
-        flash("Seul un administrateur peut activer/désactiver un projet", "error")
-        return redirect(url_for("projects"))
     status = database.toggle_project(pid)
     if not status:
         flash("Projet introuvable", "error")
@@ -363,7 +364,7 @@ def project_toggle(pid):
 def project_delete(pid):
     project = database.get_project(pid)
     if not project or not _can_delete(project.row.get("owner_id")):
-        flash("Seul un administrateur peut supprimer un projet", "error")
+        flash("Vous ne pouvez supprimer que vos propres projets", "error")
         return redirect(url_for("projects"))
     database.delete_project(pid)
     flash("Projet supprimé", "success")
@@ -1128,7 +1129,7 @@ def scenario_run(pid):
         names = ", ".join(incomplete[:5])
         flash(
             f"Attention : {len(incomplete)} fonctionnalité(s) n'ont ni étapes "
-            f"ni description ({names}). Le moteur va essayer de naviguer vers la "
+            f"ni description ({names}). L'IA va essayer de naviguer vers la "
             f"fonctionnalité mais sans instruction précise.",
             "warning")
 
@@ -1136,7 +1137,7 @@ def scenario_run(pid):
                                    plan=plan)
     if not app.config.get("TESTING"):
         threading.Thread(target=engine.run_test, args=(tid, pid, plan), daemon=True).start()
-    flash(f"Exécution automatique démarrée ({count} fonctionnalité(s))", "success")
+    flash(f"Exécution automatique démarrée ({count} fonctionnalité(s)) via IA", "success")
     return redirect(url_for("test_view", tid=tid))
 
 
@@ -1198,10 +1199,8 @@ SETTINGS_FIELDS = [
     ("report_email_enabled", "Rapport par e-mail", "bool",
      "Activez : à la fin de chaque scénario, un résumé des statistiques est envoyé "
      "par e-mail avec le rapport en PDF en pièce jointe.", "email"),
-    ("report_email_recipient", "Destinataire par défaut", "text",
-     "Valeur utilisée uniquement pour les projets sans destinataires propres. "
-     "Astuce : renseignez plutôt les destinataires directement dans chaque projet "
-     "(champ « Destinataires du rapport ») pour n'envoyer le rapport qu'aux bonnes personnes.", "email"),
+    ("report_email_recipient", "Destinataires du rapport", "text",
+     "Adresse(s) e-mail des destinataires, séparées par des virgules ou des points-virgules.", "email"),
     ("report_email_subject", "Objet de l'e-mail", "text",
      "Titre affiché dans la boîte de réception.", "email"),
     ("smtp_user", "Utilisateur SMTP", "text",
@@ -1251,7 +1250,7 @@ _UI_EDITABLE_KEYS = frozenset({
 
 
 @app.route("/settings", methods=["GET", "POST"])
-@admin_required
+@login_required
 def settings():
     if request.method == "POST":
         payload = {}
@@ -1532,46 +1531,14 @@ def _notify_new_user(to_email, password, name=""):
     """Attempt to e-mail the temporary password. Queues it in the outbox even
     without SMTP. Returns True when actually sent."""
     subject = "Votre compte AUTOMATION"
-    body_text = (
-        f"Bonjour {name},\n"
-        f"Un compte a été créé pour vous sur la plateforme AUTOMATION.\n"
-        f"Identifiant : {to_email}\n"
-        f"Mot de passe temporaire : {password}\n"
-        f"Changez-le dès votre première connexion depuis Mon profil.")
-    login_url = request.host_url.rstrip("/")
-    content = (
-        f'<p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Bonjour {name},</p>'
-        f'<p style="margin:0 0 4px;">Un compte a été créé pour vous sur la plateforme '
-        f'<b style="color:#4f46e5;">AUTOMATION</b>. Voici vos identifiants de connexion :</p>'
-        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        f'style="border-collapse:collapse;margin:12px 0;border:1px solid #e2e8f0;'
-        f'border-radius:12px;overflow:hidden;">'
-        f'<tr>'
-        f'<td style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;'
-        f'width:44%;font-size:10px;font-weight:700;color:#64748b;letter-spacing:.5px;">'
-        f'IDENTIFIANT</td>'
-        f'<td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;'
-        f'font-family:Consolas,Menlo,monospace;font-size:13px;color:#0f172a;">{to_email}</td>'
-        f'</tr>'
-        f'<tr>'
-        f'<td style="padding:10px 14px;background:#f8fafc;font-size:10px;font-weight:700;'
-        f'color:#64748b;letter-spacing:.5px;">MOT DE PASSE TEMPORAIRE</td>'
-        f'<td style="padding:10px 14px;background:#fffbeb;'
-        f'font-family:Consolas,Menlo,monospace;font-size:13px;font-weight:700;'
-        f'color:#b45309;">{password}</td>'
-        f'</tr>'
-        f'</table>'
-        f'{mailer.info_note("Pour des raisons de sécurité, changez ce mot de passe dès votre "
-                           f"première connexion depuis la page <b>Mon profil</b>.", "warning")}'
-        f'{mailer.action_button("Accéder à la plateforme", login_url)}'
-        f'<p style="font-size:11px;color:#94a3b8;margin:12px 0 0;border-top:1px solid #f1f5f9;'
-        f'padding-top:10px;text-align:center;">Ces identifiants sont personnels et confidentiels — '
-        f'ne les partagez pas.</p>')
-    body_html = mailer.render_html(
-        "Votre compte a été créé", content,
-        preheader=f"{to_email} · mot de passe temporaire pour la plateforme AUTOMATION")
-    return mailer.send_email(to_email, subject, body_html,
-                             body_text=body_text)
+    body = (
+        f"<p>Bonjour <strong>{name}</strong>,</p>"
+        f"<p>Un compte a été créé pour vous sur la plateforme AUTOMATION.</p>"
+        f"<ul><li><strong>Identifiant :</strong> {to_email}</li>"
+        f"<li><strong>Mot de passe temporaire :</strong> {password}</li></ul>"
+        f"<p>Changez-le dès votre première connexion depuis "
+        f"<em>Mon profil</em>.</p>")
+    return mailer.send_email(to_email, subject, body)
 
 
 @app.route("/users/<int:uid>/edit", methods=["POST"])
@@ -1589,13 +1556,18 @@ def user_edit(uid):
     email = (request.form.get("email") or "").strip().lower()
     role = (request.form.get("role") or "qa") or "qa"
     new_password = (request.form.get("new_password") or "").strip()
-    confirm_password = (request.form.get("new_password_confirm") or "").strip()
     if role != "admin" and getattr(target, "role") == "admin" \
             and database.count_admins() <= 1:
         msg = "Impossible de retirer le rôle admin du dernier administrateur"
         if want_json:
             return jsonify({"ok": False, "error": msg}), 400
         flash(msg, "error")
+        return redirect(url_for("users"))
+    ok = database.update_user(uid, full_name=full_name, email=email, role=role)
+    if not ok:
+        if want_json:
+            return jsonify({"ok": False, "error": "Cette adresse e-mail est déjà utilisée"}), 400
+        flash("Cette adresse e-mail est déjà utilisée", "error")
         return redirect(url_for("users"))
     if new_password:
         if len(new_password) < 4:
@@ -1604,19 +1576,6 @@ def user_edit(uid):
                 return jsonify({"ok": False, "error": msg}), 400
             flash(msg, "error")
             return redirect(url_for("users"))
-        if new_password != confirm_password:
-            msg = "La confirmation du nouveau mot de passe ne correspond pas"
-            if want_json:
-                return jsonify({"ok": False, "error": msg}), 400
-            flash(msg, "error")
-            return redirect(url_for("users"))
-    ok = database.update_user(uid, full_name=full_name, email=email, role=role)
-    if not ok:
-        if want_json:
-            return jsonify({"ok": False, "error": "Cette adresse e-mail est déjà utilisée"}), 400
-        flash("Cette adresse e-mail est déjà utilisée", "error")
-        return redirect(url_for("users"))
-    if new_password:
         database.update_user_password(uid, new_password)
     if want_json:
         return jsonify({"ok": True})
@@ -1655,20 +1614,12 @@ def profile():
         email = (request.form.get("email") or "").strip().lower()
         current_pw = request.form.get("current_password") or ""
         new_pw = request.form.get("new_password") or ""
-        confirm_pw = request.form.get("new_password_confirm") or ""
         if not email:
             flash("L'adresse e-mail est obligatoire", "error")
             return redirect(url_for("profile"))
-        if new_pw:
-            if not database.validate_credentials(user.email, current_pw):
-                flash("Mot de passe actuel incorrect", "error")
-                return redirect(url_for("profile"))
-            if new_pw != confirm_pw:
-                flash("La confirmation du nouveau mot de passe ne correspond pas", "error")
-                return redirect(url_for("profile"))
-            if len(new_pw) < 4:
-                flash("Le mot de passe doit contenir au moins 4 caractères", "error")
-                return redirect(url_for("profile"))
+        if new_pw and not database.validate_credentials(user.email, current_pw):
+            flash("Mot de passe actuel incorrect", "error")
+            return redirect(url_for("profile"))
         ok = database.update_user(user.id, full_name=full_name, email=email)
         if not ok:
             flash("Cette adresse e-mail est déjà utilisée", "error")
@@ -1693,37 +1644,13 @@ def forgot_password():
         token = database.create_password_reset(email)
         if token:
             link = request.host_url.rstrip("/") + url_for("reset_password", token=token)
-            body_text = (
-                "Bonjour,\n"
-                "Vous avez demandé la réinitialisation de votre mot de passe.\n"
-                "Cliquez sur ce lien pour définir un nouveau mot de passe :\n"
-                f"{link}\n"
-                "Ce lien expire dans 60 minutes.\n"
-                "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.")
-            note_pw = ("Ce lien expire dans <b>60 minutes</b>. Si vous n'êtes pas à l'origine "
-                       "de cette demande, ignorez cet e-mail : votre mot de passe reste inchangé.")
-            content = (
-                f'<p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Bonjour,</p>'
-                f'<p style="margin:0 0 12px;">Nous avons reçu une demande de réinitialisation du '
-                f'mot de passe pour votre compte '
-                f'<b style="color:#0f172a;">{email}</b>.</p>'
-                f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;'
-                f'padding:14px 16px;text-align:center;margin:0 0 12px;">'
-                f'<div style="font-size:12px;color:#64748b;margin-bottom:10px;">Cliquez ci-dessous '
-                f'pour définir un nouveau mot de passe :</div>'
-                f'{mailer.action_button("Réinitialiser mon mot de passe", link, "#7c3aed")}'
-                f'</div>'
-                f'<p style="font-size:11px;color:#94a3b8;text-align:center;margin:0 0 12px;">'
-                f'Si le bouton ne fonctionne pas, copiez ce lien : '
-                f'<a href="{link}" style="color:#7c3aed;word-break:break-all;">{link}</a></p>'
-                f'{mailer.info_note(note_pw, "warning")}')
             mailer.send_email(
                 email,
                 "Réinitialisation de votre mot de passe AUTOMATION",
-                mailer.render_html(
-                    "Réinitialisation du mot de passe", content, accent="#7c3aed",
-                    preheader=f"Réinitialisation du mot de passe de {email}"),
-                body_text=body_text)
+                f"<p>Bonjour,</p>"
+                f"<p>Cliquez sur le lien ci-dessous pour définir un nouveau mot de passe :</p>"
+                f"<p><a href=\"{link}\">{link}</a></p>"
+                f"<p>Ce lien expire dans 60 minutes.</p>")
         flash("Si cette adresse existe, un e-mail de réinitialisation a été envoyé.", "info")
         return redirect(url_for("login"))
     return render_template("forgot_password.html")
@@ -1755,10 +1682,6 @@ def reset_password(token):
 def user_delete(uid):
     if uid == session.get("user_id"):
         flash("Vous ne pouvez pas supprimer votre propre compte", "error")
-        return redirect(url_for("users"))
-    target = database.get_user_by_id(uid)
-    if target and getattr(target, "role") == "admin" and database.count_admins() <= 1:
-        flash("Impossible de supprimer le dernier administrateur", "error")
         return redirect(url_for("users"))
     database.delete_user(uid)
     flash("Utilisateur supprimé", "success")
@@ -1793,7 +1716,6 @@ def _project_form():
         "auth_type": request.form.get("auth_type", "simple"),
         "environment": request.form.get("environment", "STAGING"),
         "comments": request.form.get("comments", "").strip(),
-        "report_recipients": request.form.get("report_recipients", "").strip(),
     }
 
 

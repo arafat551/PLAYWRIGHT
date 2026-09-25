@@ -201,53 +201,6 @@ def test_send_run_report_sends_pdf_to_recipients(_init_db, monkeypatch):
     _clear_email_settings()
 
 
-def test_send_run_report_uses_project_recipients_when_set(_init_db, monkeypatch):
-    """Les destinataires configurés sur le projet priment sur le global."""
-    from sdet_app.models import TestResult
-
-    _configure(report_email_enabled="1",
-               report_email_recipient="global@x.test")
-
-    class _ProjTest(_FakeTest):
-        report_recipients = "equipe-projet@x.test; chef@x.test"
-
-    monkeypatch.setattr(database, "get_test_run", lambda tid: _ProjTest())
-    monkeypatch.setattr(database, "list_results",
-                        lambda tid: [TestResult(id=1, **r) for r in _FAKE_RESULTS])
-    monkeypatch.setattr(email_report, "render_report_pdf",
-                        lambda html: b"%PDF-1.4 fake")
-    sent_mails = []
-    monkeypatch.setattr(mailer, "send_email",
-                        lambda *a, **k: sent_mails.append((a, k)) or True)
-
-    sent, recipients = email_report.send_run_report(41)
-    assert sent == 2
-    assert recipients == ["equipe-projet@x.test", "chef@x.test"]
-    assert "global@x.test" not in recipients
-    _clear_email_settings()
-
-
-def test_send_run_report_falls_back_to_global_recipients(_init_db, monkeypatch):
-    """Sans destinataires sur le projet, la valeur globale des Paramètres est utilisée."""
-    from sdet_app.models import TestResult
-
-    _configure(report_email_enabled="1", report_email_recipient="global@x.test")
-
-    monkeypatch.setattr(database, "get_test_run", lambda tid: _FakeTest())
-    monkeypatch.setattr(database, "list_results",
-                        lambda tid: [TestResult(id=1, **r) for r in _FAKE_RESULTS])
-    monkeypatch.setattr(email_report, "render_report_pdf",
-                        lambda html: b"%PDF-1.4 fake")
-    sent_mails = []
-    monkeypatch.setattr(mailer, "send_email",
-                        lambda *a, **k: sent_mails.append((a, k)) or True)
-
-    sent, recipients = email_report.send_run_report(41)
-    assert sent == 1
-    assert recipients == ["global@x.test"]
-    _clear_email_settings()
-
-
 def test_settings_ui_saves_smtp_and_email_fields(client, _init_db):
     client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
     r = client.post("/settings", data={

@@ -56,25 +56,13 @@ def severity_counts(results):
     return counts
 
 
-def _fmt_date(value):
-    """Format a stored date as day/month/year (with time when available)."""
-    raw = str(value or "")[:19].replace("T", " ")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(raw, fmt)
-        except ValueError:
-            continue
-        return dt.strftime("%d/%m/%Y %H:%M") if " " in raw else dt.strftime("%d/%m/%Y")
-    return raw
-
-
 def build_report(project, test_run, results, counters, duration):
     modules = group_by_module(results)
     return {
         "project": project.get("name", ""),
         "project_url": (project.get("url") or "").strip(),
         "environment": project.get("environment", ""),
-        "date": _fmt_date(test_run.get("started_at") or datetime.now().isoformat()),
+        "date": (test_run.get("started_at") or datetime.now().isoformat()),
         "launched_by": test_run.get("launched_by", ""),
         "duration": _fmt_duration(duration),
         "run_type": test_run.get("run_type", "Test"),

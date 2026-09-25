@@ -3,7 +3,6 @@
 - QAs only see the projects assigned to them;
 - admins manage global settings and users (QA excluded)."""
 
-
 def _login(client, email, pw):
     return client.post("/login", data={"email": email, "password": pw})
 
@@ -14,9 +13,10 @@ def _uid(email):
 
 
 def _make_project(client, name, assign=()):
-    """Create a project as admin and assign the given QA emails to it."""
+    """Create a project (as admin when assigning QAs) and optionally assign them."""
     from sdet_app import database
-    _login(client, "admin@example.com", "admin123")
+    if assign:
+        _login(client, "admin@example.com", "admin123")
     client.post("/projects/new", data={
         "name": name, "url": f"https://{name}.test", "email": "a@b.test",
         "password": "pw", "auth_type": "simple", "environment": "STAGING",
@@ -46,35 +46,27 @@ def test_qa_can_create_project(client, two_users):
 
 def test_qa_only_sees_assigned_projects(client, two_users):
     alice, bob = two_users
-    _make_project(client, "ProjetBob", assign=(bob,))
+    _login(client, bob, "pwB")
+    pid_b = _make_project(client, "ProjetBob")
+    assert pid_b is not None
     _login(client, alice, "pwA")
     body = client.get("/projects").get_data(as_text=True)
     assert "ProjetBob" not in body
+    pid_a = _make_project(client, "ProjetAlice")
+    assert pid_a is not None
     _login(client, bob, "pwB")
     body = client.get("/projects").get_data(as_text=True)
+    assert "ProjetAlice" not in body
     assert "ProjetBob" in body
     _login(client, "admin@example.com", "admin123")
     body = client.get("/projects").get_data(as_text=True)
-    assert "ProjetBob" in body
+    assert "ProjetAlice" in body and "ProjetBob" in body
 
 
-def test_admin_can_assign_multiple_qas(client, _init_db):
-    from sdet_app import database
-    database.create_user("carol@x.test", "pwC", "Carol", "qa")
-    alice, bob = "alice@x.test", "bob@x.test"
-    pid = _make_project(client, "ProjetMulti", assign=(alice, bob, "carol@x.test"))
-    for email in (alice, bob, "carol@x.test"):
-        _login(client, email, "pwC" if "carol" in email else "pwA" if "alice" in email else "pwB")
-        body = client.get("/projects").get_data(as_text=True)
-        assert "ProjetMulti" in body
-    assert pid is not None
-    members = {m["email"] for m in database.list_project_members(pid)}
-    assert members == {alice, bob, "carol@x.test"}
-
-
-def test_qa_cannot_access_unassigned_project(client, two_users):
+def test_user_cannot_access_other_users_project(client, two_users):
     alice, bob = two_users
-    pid_b = _make_project(client, "ProjetOccupe", assign=(bob,))
+    _login(client, bob, "pwB")
+    pid_b = _make_project(client, "ProjetBob")
     _login(client, alice, "pwA")
     r = client.get(f"/projects/{pid_b}")
     assert r.status_code == 302
@@ -82,20 +74,18 @@ def test_qa_cannot_access_unassigned_project(client, two_users):
     assert r.status_code == 302
     r = client.get(f"/projects/{pid_b}/select")
     assert r.status_code == 302
-    _login(client, bob, "pwB")
-    assert client.get(f"/projects/{pid_b}").status_code == 200
 
 
-def test_qa_cannot_delete_project(client, _init_db):
+def test_delete_restricted_to_owner_even_for_admin(client, two_users, _init_db):
     from sdet_app import database
-    bob = "bob@x.test"
-    pid_b = _make_project(client, "ProjetProtege", assign=(bob,))
-    _login(client, bob, "pwB")
+    _login(client, two_users[1], "pwB")
+    pid_b = _make_project(client, "ProjetBob")
+    _login(client, "admin@example.com", "admin123")
     r = client.post(f"/projects/{pid_b}/delete")
     assert r.status_code == 302
     assert database.get_project(pid_b) is not None, \
-        "un QA ne doit pas pouvoir supprimer un projet"
-    _login(client, "admin@example.com", "admin123")
+        "l'admin ne doit pas pouvoir supprimer un projet d'autrui"
+    _login(client, two_users[1], "pwB")
     client.post(f"/projects/{pid_b}/delete")
     assert database.get_project(pid_b) is None
 
@@ -123,19 +113,18 @@ def test_members_button_visible_for_all(client, two_users):
     body = client.get("/projects").get_data(as_text=True)
     assert "Gérer les accès" in body
 
-
 def test_dashboard_scoped_per_user(client, two_users):
     alice, bob = two_users
-    _make_project(client, "ProjetDash", assign=(bob,))
     _login(client, bob, "pwB")
+    _make_project(client, "ProjetBob")
     body = client.get("/dashboard").get_data(as_text=True)
-    assert "ProjetDash" in body
+    assert "ProjetBob" in body
     _login(client, alice, "pwA")
     body = client.get("/dashboard").get_data(as_text=True)
-    assert "ProjetDash" not in body
+    assert "ProjetBob" not in body
     _login(client, "admin@example.com", "admin123")
     body = client.get("/dashboard").get_data(as_text=True)
-    assert "ProjetDash" in body
+    assert "ProjetBob" in body
 
 
 def test_dashboard_vertical_chart_with_pagination(client, _init_db):
@@ -144,9 +133,10 @@ def test_dashboard_vertical_chart_with_pagination(client, _init_db):
         _make_project(client, f"ProjetPag-{i}")
     body = client.get("/dashboard").get_data(as_text=True)
     assert "vbar-chart" in body
-    assert body.count('class="vbar-page"') >= 2, \
+    total = len(_init_db.list_projects())
+    expected_pages = -(-total // 6)  # ceil : lots de 6 projets
+    assert body.count('class="vbar-page"') == expected_pages, \
         "le graphique doit être paginé par lots de 6 projets"
-    assert "initPager('.vbar-page', 'ppPager', 6)" in body
     assert 'class="vbar-grid-lines"' in body
 
 
