@@ -78,6 +78,19 @@ def test_build_email_content_contains_stats_table():
     assert "Rapport d'exécution AUTOMATION" in body_html
 
 
+def test_email_verdict_marks_cancelled_run():
+    report = {"project": "P", "environment": "STAGING", "run_type": "Scénario",
+              "date": "2026-01-01", "launched_by": "admin@x.test",
+              "duration": "0m 00s", "total": 0, "passed": 0, "failed": 0,
+              "warning": 0, "skipped": 0, "success_pct": 0.0,
+              "status": "cancelled", "module_stats": [], "failures": []}
+    _subject, body_text, _body_html = email_report.build_email_content(
+        {"name": "P"}, {"run_type": "Scénario", "started_at": "2026-01-01",
+                         "launched_by": "admin@x.test", "duration": "0m 00s"},
+        report)
+    assert "ANNULÉ" in body_text
+
+
 def test_send_run_report_disabled_is_noop(_init_db, monkeypatch):
     _configure(report_email_enabled="0", report_email_recipient="qa@x.test")
     calls = []

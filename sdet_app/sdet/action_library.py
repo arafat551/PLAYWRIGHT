@@ -222,9 +222,11 @@ def _human_description(action_type, target, value):
     if action_type == "RECHERCHER":
         return f"{label} {target}"
     if action_type == "SELECTIONNER_LIGNE":
-        return f"{label} : {target}"
+        return f"Sélectionner la ligne {target}"
     if action_type == "ECRAN":
         return f"Capturer {target}"
+    if action_type == "CLIQUEER":
+        return f"{label} sur {target}"
     return f"{label} {target}"
 
 

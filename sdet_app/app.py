@@ -617,14 +617,17 @@ def scenario_functionality_toggle(pid, fid):
 @app.route("/projects/<int:pid>/scenarios/functionalities/<int:fid>/steps", methods=["POST"])
 @login_required
 def scenario_step_create(pid, fid):
-    description = request.form.get("description", "").strip()
-    if not description:
-        flash("Le libellé de l'étape est obligatoire", "error")
-        return redirect(url_for("project_scenarios", pid=pid))
     atype = request.form.get("action_type", "") or ""
     target = request.form.get("target", "") or ""
     value = request.form.get("value", "") or ""
     expected = request.form.get("expected", "") or ""
+    description = request.form.get("description", "").strip()
+    if not description:
+        # Libellé auto-généré si l'utilisateur n'a pas saisi de texte libre.
+        description = _human_description(atype, target, value).strip()
+    if not description:
+        flash("Le libellé de l'étape est obligatoire", "error")
+        return redirect(url_for("project_scenarios", pid=pid))
     database.add_step(fid, description, action_type=atype, target=target,
                       value=value, expected=expected)
     flash("Étape ajoutée", "success")
@@ -1060,14 +1063,17 @@ def scenario_step_edit(pid, sid):
         flash("Étape introuvable", "error")
         return redirect(url_for("project_scenarios", pid=pid))
     if request.method == "POST":
-        description = request.form.get("description", "").strip()
-        if not description:
-            flash("La description est obligatoire", "error")
-            return redirect(url_for("scenario_step_edit", pid=pid, sid=sid))
         atype = request.form.get("action_type", "") or None
         target = request.form.get("target", "") or ""
         value = request.form.get("value", "") or ""
         expected = request.form.get("expected", "") or ""
+        description = request.form.get("description", "").strip()
+        if not description:
+            # Libellé auto-généré si l'utilisateur n'a pas saisi de texte libre.
+            description = _human_description(atype, target, value).strip()
+        if not description:
+            flash("La description est obligatoire", "error")
+            return redirect(url_for("scenario_step_edit", pid=pid, sid=sid))
         database.update_step(sid, description, action_type=atype,
                              target=target, value=value, expected=expected)
         flash("Étape mise à jour", "success")
@@ -1109,9 +1115,13 @@ def scenario_run(pid):
         flash("Sélectionnez au moins une fonctionnalité à tester", "error")
         return redirect(url_for("scenario_select", pid=pid))
 
-    # Alerter si des fonctionnalités n'ont ni étapes ni description
+    # Alerter si des fonctionnalités n'ont ni étapes ni description.
+    # Les actions structurées (action_type) ne sont pas des fonctionnalités
+    # incomplètes : elles n'ont ni steps ni description par construction.
     incomplete = []
     for s in plan:
+        if s.get("action_type"):
+            continue
         if not s.get("steps") and not s.get("function_description", "").strip():
             incomplete.append(s["function"])
     if incomplete:
@@ -1351,7 +1361,8 @@ def test_view(tid):
     results = database.list_results(tid)
     run_type = getattr(test, "run_type", "")
     progress = None
-    if test.status in ("running", "waiting_otp", "otp_submitted"):
+    if test.status in ("running", "exploring", "waiting_otp",
+                       "otp_submitted", "cancel_requested"):
         progress = database.run_progress(tid)
     if run_type == "Exploration":
         template = "exploration.html"
@@ -1796,8 +1807,6 @@ def _validate_project(data, editing=False):
         errors.append("Type d'authentification invalide")
     if data["environment"] not in ("STAGING", "PRODUCTION"):
         errors.append("Environnement invalide")
-    if not editing and not data["password"] and data["auth_type"] != "none":
-        errors.append("Le mot de passe est requis pour cette authentification")
     recipients = [r.strip() for r in re.split(r"[,;]", data.get("report_recipients") or "")
                   if r.strip()]
     for r in recipients:

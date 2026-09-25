@@ -42,6 +42,41 @@ def test_project_creation_with_2fa(client):
     client.post("/projects/{}/delete".format(proj["id"]))
 
 
+def test_public_project_can_be_created_without_credentials(client, _init_db):
+    from sdet_app import database
+    client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
+    response = client.post("/projects/new", data={
+        "name": "PublicApp", "url": "https://public.test", "email": "",
+        "password": "", "auth_type": "none", "environment": "STAGING",
+        "comments": ""})
+    assert response.status_code == 302
+    project = next(p for p in database.list_projects()
+                   if p["name"] == "PublicApp")
+    assert project["auth_type"] == "none"
+    assert project["email"] == ""
+    assert project["password_enc"] == ""
+    client.post("/projects/{}/delete".format(project["id"]))
+
+
+def test_switching_project_to_public_clears_stored_credentials(client, _init_db):
+    from sdet_app import database
+    project_id = database.create_project(
+        {"name": "PrivateToPublic", "url": "https://switch.test",
+         "email": "qa@switch.test", "password": "secret",
+         "auth_type": "simple", "environment": "STAGING", "comments": ""},
+        encrypt=lambda value: "encrypted:" + value)
+    client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
+    response = client.post(f"/projects/{project_id}/edit", data={
+        "name": "PrivateToPublic", "url": "https://switch.test", "email": "",
+        "password": "", "auth_type": "none", "environment": "STAGING",
+        "comments": ""})
+    assert response.status_code == 302
+    project = database.get_project(project_id)
+    assert project["email"] == ""
+    assert project["password_enc"] == ""
+    client.post("/projects/{}/delete".format(project_id))
+
+
 def test_otp_route_submits_code_and_waits(client):
     """Le code OTP saisi dans l'interface doit être enregistré (waiting_otp)."""
     from sdet_app import database

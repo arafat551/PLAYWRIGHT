@@ -169,3 +169,97 @@ def test_runner_can_execute_structured_actions():
     assert "REMPLIR" in runner_mod._STRUCTURED_ACTION_TYPES
     assert "NAVIGATION" not in runner_mod._STRUCTURED_ACTION_TYPES
     assert "CREATE" not in runner_mod._STRUCTURED_ACTION_TYPES
+
+
+class _FakeRowEl:
+    def __init__(self, page, attrs=None, text="", controls=None):
+        self.page = page
+        self.attrs = attrs or {}
+        self.text = text
+        self.controls = controls or []
+
+    def get_attribute(self, name):
+        return self.attrs.get(name)
+
+    def inner_text(self):
+        return self.text
+
+    def query_selector_all(self, sel):
+        return self.controls
+
+    def click(self, timeout=0):
+        self.page.clicked.append(self.attrs.get("title") or self.text.strip())
+
+
+class _TablePage(_FakePage):
+    """Page with a data table: two rows, one has icon buttons with titles."""
+
+    def __init__(self):
+        super().__init__()
+        self.clicked = []
+        self.rows = []
+        self.rows = [
+            _FakeRowEl(self, text="Autre Ligne", controls=[
+                _FakeRowEl(self, {"title": "Valider le contrat"}),
+                _FakeRowEl(self, {"title": "Modifier"}),
+            ]),
+            _FakeRowEl(self, text="Client Test", controls=[
+                _FakeRowEl(self, {"title": "Valider le contrat"}),
+            ]),
+        ]
+
+    def query_selector_all(self, sel):
+        if sel == "table tbody tr":
+            return self.rows
+        return []
+
+
+def test_click_row_action_targets_last_filled_row_by_any_title():
+    page = _TablePage()
+    interp = ActionInterpreter(page)
+    interp.last_fill_value = "Client Test"
+    status, msg = interp.execute(
+        {"action_type": "CLIQUEER", "target": "Valider le contrat", "value": "",
+         "expected": ""})
+    assert status == "PASS"
+    assert page.clicked == ["Valider le contrat"], (
+        "le clic doit viser la ligne contenant la dernière valeur remplie")
+
+
+def test_interpreter_reports_failure_when_page_is_closed_during_capture():
+    class _ClosedPage(_FakePage):
+        def screenshot(self, path=None):
+            raise RuntimeError("Target page, context or browser has been closed")
+
+    status, message = ActionInterpreter(_ClosedPage()).execute(
+        {"action_type": "ECRAN", "target": "final", "value": "",
+         "expected": "Capture"})
+    assert status == "FAIL"
+    assert "closed" in message.lower()
+
+
+def test_click_row_action_accepts_custom_button_name_not_in_keywords():
+    page = _TablePage()
+    interp = ActionInterpreter(page)
+    interp.last_fill_value = "Client Test"
+    # "Clôturer" n'est ni Visualiser/Modifier/Supprimer : il doit quand
+    # même être reconnu via le title du bouton dans la bonne ligne.
+    row = page.rows[1]
+    row.controls = [_FakeRowEl(page, {"title": "Clôturer le dossier"})]
+    status, msg = interp.execute(
+        {"action_type": "CLIQUEER", "target": "Clôturer le dossier", "value": "",
+         "expected": ""})
+    assert status == "PASS"
+    assert page.clicked == ["Clôturer le dossier"]
+
+
+def test_click_value_designates_the_table_row():
+    """La Valeur d'un Cliquer désigne la ligne du tableau à viser."""
+    page = _TablePage()
+    interp = ActionInterpreter(page)
+    status, msg = interp.execute(
+        {"action_type": "CLIQUEER", "target": "Valider le contrat",
+         "value": "Client Test", "expected": ""})
+    assert status == "PASS"
+    assert page.clicked == ["Valider le contrat"], (
+        "la Valeur doit cibler la ligne contenant ce texte")

@@ -909,7 +909,10 @@ def create_project(data, editor="", encrypt=None, decrypt=None, owner_id=None):
 def update_project(pid, data, editor="", encrypt=None, keep_password=None):
     db = get_connection()
     proj = db.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
-    if data.get("password"):
+    if data.get("auth_type") == "none":
+        # Mode public : aucun identifiant conservé (ancien mot de passe écrasé).
+        pw_enc = ""
+    elif data.get("password"):
         pw_enc = encrypt(data["password"])
     else:
         pw_enc = proj["password_enc"] if proj else ""
@@ -1073,8 +1076,11 @@ def save_result(tid, res, screenshot="", http_status=0):
         (tid, res["module"], res["function"], res.get("action", ""),
          res.get("data", ""), res["status"], res["severity"],
          res["expected"], res["obtained"], screenshot, http_status))
+    # Ne jamais rouvrir un run annulé / terminé par une écriture de résultat.
     db.execute(
-        "UPDATE test_runs SET status='running' WHERE id=?", (tid,))
+        "UPDATE test_runs SET status='running' WHERE id=? "
+        "AND status NOT IN ('cancel_requested','cancelled','completed','failed')",
+        (tid,))
     db.commit()
     db.close()
 
@@ -1135,6 +1141,10 @@ def finalize_manual_run(tid, running=False):
 
 def finalize_test_run(tid, status, counters, results):
     db = get_connection()
+    row = db.execute("SELECT status FROM test_runs WHERE id=?", (tid,)).fetchone()
+    if row and row["status"] in ("cancel_requested", "cancelled"):
+        # Une annulation prime sur le statut final transmis par le moteur.
+        status = "cancelled"
     db.execute(
         """UPDATE test_runs SET status=?, finished_at=datetime('now'),
            total=?, passed=?, failed=?, warning=?, skipped=?, report_json=?
@@ -1170,15 +1180,28 @@ def run_progress(tid):
     """
     db = get_connection()
     row = db.execute("SELECT plan_json FROM test_runs WHERE id=?", (tid,)).fetchone()
+    # Les étapes PENDING ne comptent pas comme exécutées.
     done = db.execute(
-        "SELECT COUNT(*) FROM test_results WHERE test_id=?", (tid,)).fetchone()[0]
+        "SELECT COUNT(*) FROM test_results WHERE test_id=? "
+        "AND status NOT IN ('', 'PENDING')", (tid,)).fetchone()[0]
     db.close()
     total = 0
     if row and row["plan_json"]:
         try:
-            total = len(json.loads(row["plan_json"]))
+            plan = json.loads(row["plan_json"])
         except Exception:
-            total = 0
+            plan = []
+        for item in plan:
+            if not isinstance(item, dict):
+                total += 1
+                continue
+            steps = item.get("steps")
+            # Un ai_step représente ses sous-étapes ; une action structurée
+            # compte pour une seule étape.
+            if item.get("step_type") == "ai_step" and isinstance(steps, list) and steps:
+                total += len(steps)
+            else:
+                total += 1
     if total <= 0:
         total = max(done, 1)
     pct = min(round((done / total) * 100), 100) if total > 0 else 0
@@ -1211,7 +1234,10 @@ def set_waiting_otp(tid):
 
 def set_running_total(tid, total):
     db = get_connection()
-    db.execute("UPDATE test_runs SET status='exploring', total=? WHERE id=?", (total, tid))
+    db.execute(
+        "UPDATE test_runs SET status='exploring', total=? WHERE id=? "
+        "AND status NOT IN ('cancel_requested','cancelled','completed','failed')",
+        (total, tid))
     db.commit()
     db.close()
 
@@ -1219,7 +1245,8 @@ def set_running_total(tid, total):
 def mark_explored(tid, total):
     db = get_connection()
     db.execute(
-        "UPDATE test_runs SET status='explored', finished_at=datetime('now'), total=? WHERE id=?",
+        "UPDATE test_runs SET status='explored', finished_at=datetime('now'), total=? "
+        "WHERE id=? AND status NOT IN ('cancel_requested','cancelled','completed','failed')",
         (total, tid))
     db.commit()
     db.close()

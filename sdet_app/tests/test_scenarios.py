@@ -81,6 +81,82 @@ def test_module_step_delete(client, _init_db):
     client.post("/projects/{}/delete".format(pid))
 
 
+def test_step_without_libelle_gets_auto_description(client, _init_db):
+    """Une action standard sans libellé reçoit une description auto-générée
+    (le champ Libellé ne s'affiche que pour les remplissages)."""
+    pid = _make_project(client)
+    client.post(f"/projects/{pid}/scenarios/modules",
+                data={"name": "CRM"}, follow_redirects=True)
+    mod = database.list_modules(pid)[0]
+    client.post(f"/projects/{pid}/scenarios/modules/{mod['id']}/functionalities",
+                data={"name": "Créer"}, follow_redirects=True)
+    fn = database.list_functionalities(mod["id"])[0]
+
+    client.post(f"/projects/{pid}/scenarios/functionalities/{fn['id']}/steps",
+                data={"action_type": "REMPLIR", "target": "Nom",
+                      "value": "QA_CLIENT_2509", "description": ""},
+                follow_redirects=True)
+    step = database.list_steps(fn["id"])[0]
+    assert step["action_type"] == "REMPLIR"
+    assert "Remplir" in step["description"]
+
+    client.post(f"/projects/{pid}/scenarios/functionalities/{fn['id']}/steps",
+                data={"action_type": "CLIQUEER", "target": "Ajouter",
+                      "value": "", "description": ""},
+                follow_redirects=True)
+    step = database.list_steps(fn["id"])[1]
+    assert step["action_type"] == "CLIQUEER"
+    assert step["description"] == "Cliquer sur Ajouter"
+    client.post("/projects/{}/delete".format(pid))
+    assert database.list_all_functionalities(pid) == [], (
+        "la suppression du projet doit cascader sur les scénarios")
+
+
+def test_progress_ignores_pending_and_counts_ai_substeps(_init_db):
+    project_id = database.create_project(
+        {"name": "ProgressPublic", "url": "https://progress.test",
+         "email": "", "password": "", "auth_type": "none",
+         "environment": "STAGING", "comments": ""}, encrypt=lambda value: value)
+    plan = [
+        {"step_type": "ai_step", "module": "CRM", "function": "Créer",
+         "steps": ["Ouvrir", "Enregistrer"]},
+        {"action_type": "CLIQUEER", "target": "Valider", "value": "",
+         "module": "CRM", "function": "Créer"},
+    ]
+    test_id = database.create_test_run(project_id, "Scénario", plan=plan)
+    database.save_result(test_id, {
+        "module": "CRM", "function": "Créer", "action": "Ouvrir",
+        "status": "PASS", "severity": "", "expected": "", "obtained": "OK"})
+    assert database.run_progress(test_id) == (1, 3, 33)
+    database.save_result(test_id, {
+        "module": "CRM", "function": "Créer", "action": "En attente",
+        "status": "PENDING", "severity": "", "expected": "", "obtained": ""})
+    assert database.run_progress(test_id) == (1, 3, 33)
+    database.delete_test_run(test_id)
+    database.delete_project(project_id)
+
+
+def test_cancelled_run_cannot_be_reopened_by_progress_updates(_init_db):
+    project_id = database.create_project(
+        {"name": "CancelPublic", "url": "https://cancel.test", "email": "",
+         "password": "", "auth_type": "none", "environment": "STAGING",
+         "comments": ""}, encrypt=lambda value: value)
+    test_id = database.create_test_run(project_id, "Scénario")
+    database.request_cancel(test_id)
+    database.save_result(test_id, {
+        "module": "CRM", "function": "Créer", "action": "Après annulation",
+        "status": "FAIL", "severity": "", "expected": "", "obtained": "erreur"})
+    database.set_running_total(test_id, 4)
+    database.mark_explored(test_id, 4)
+    assert database.test_status(test_id) == "cancel_requested"
+    database.finalize_test_run(
+        test_id, "completed", {"total": 1, "passed": 0, "failed": 1,
+                               "warning": 0, "skipped": 0}, [])
+    assert database.test_status(test_id) == "cancelled"
+    database.delete_test_run(test_id)
+    database.delete_project(project_id)
+
+
 def test_run_manual_scenario_and_validate(client, _init_db):
     pid = _make_project(client)
     client.post(f"/projects/{pid}/scenarios/modules",

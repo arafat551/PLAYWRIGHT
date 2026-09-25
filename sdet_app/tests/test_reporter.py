@@ -68,6 +68,25 @@ def test_render_html_uses_relative_static_screenshot(tmp_path):
         assert "Créer une catégorie" in f.read()
 
 
+def _report():
+    rows = [dict(make_result().__dict__)]
+    counters = counters_from_results(rows)
+    report = build_report(
+        {"name": "KPIP", "environment": "STAGING"},
+        {"started_at": "2026-01-01", "run_type": "Scénario"},
+        rows, counters, 60)
+    report["status"] = "completed"
+    return report
+
+
+def test_report_preserves_terminal_status():
+    report = _report()
+    report["status"] = "cancelled"
+    html = render_html(report)
+    assert report["status"] == "cancelled"
+    assert "cancelled" in html.lower()
+
+
 def test_write_report_file_returns_report_path():
     env = pytest.importorskip("sdet_app.config").env
     rows = [dict(make_result(id=7, test_id=7).__dict__)]

@@ -176,12 +176,18 @@ def run_test(tid, pid, plan, headless=None):
         duration = time.time() - start
         final_status = "cancelled" if _is_cancelled(tid) else "completed"
         database.finalize_test_run(tid, final_status, counters, results)
-        reporter.write_report_file(project, {"started_at": datetime.now().isoformat(),
-                                             "run_type": database.get_test_run(tid).run_type,
-                                             "launched_by": database.get_test_run(tid).launched_by,
-                                             "id": tid}, results, counters, duration)
+        _write_report(project, tid, results, counters, start)
     except Exception as e:
         database.save_test_error(tid, str(e))
+        final_status = "failed"
+        # Un rapport reste généré même après une erreur fatale.
+        try:
+            rows = database.list_results(tid)
+            res = [r.__dict__ for r in rows]
+            _write_report(project, tid, res,
+                          reporter.counters_from_results(res), start)
+        except Exception:
+            _log(f"Rapport d'erreur non généré pour le run {tid}")
     finally:
         if session:
             try:
@@ -193,12 +199,25 @@ def run_test(tid, pid, plan, headless=None):
                 stop()
             except Exception:
                 pass
-    if final_status == "completed":
+    if final_status:
         try:
             from .email_report import send_run_report
             send_run_report(tid)
         except Exception as e:
             _log(f"Envoi du rapport par e-mail impossible: {e}")
+
+
+def _write_report(project, tid, results, counters, start):
+    """Écrit le fichier HTML du rapport pour un run terminé (tout statut)."""
+    run = database.get_test_run(tid)
+    reporter.write_report_file(
+        project,
+        {"started_at": datetime.now().isoformat(),
+         "run_type": getattr(run, "run_type", "Test"),
+         "launched_by": getattr(run, "launched_by", ""),
+         "status": database.test_status(tid),
+         "id": tid},
+        results, counters, time.time() - start)
 
 
 def _run_impl(session, project, tid, plan, is_cancelled=None):

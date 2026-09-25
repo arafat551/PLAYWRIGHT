@@ -1972,6 +1972,15 @@ def run_scenarios(session, db, project, tid, steps, launch_info=None,
             _log("run_scenarios: cancelled")
             break
 
+        # Page fermée (navigateur crashé / fermé) : arrêter proprement au lieu
+        # d'enregistrer des échecs en cascade sur une page morte.
+        try:
+            if runner.page.is_closed():
+                _log("run_scenarios: page fermée — arrêt du scénario")
+                break
+        except Exception:
+            pass
+
         # --- Structured action (new system): canonical action types only.
         # Legacy planner steps also carry an 'action_type' key (NAVIGATION,
         # CREATE, SEARCH, ...) so we match explicitly against the library. ---

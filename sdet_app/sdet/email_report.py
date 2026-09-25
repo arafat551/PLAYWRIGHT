@@ -79,7 +79,9 @@ def build_email_content(project, test_run, report):
     skipped = report["skipped"]
     pct = report["success_pct"]
 
-    if failed:
+    if str(report.get("status", "")).lower() in ("cancelled", "canceled"):
+        verdict = "ANNULÉ"
+    elif failed:
         verdict = "ÉCHEC"
     elif warning:
         verdict = "ATTENTION"
@@ -144,10 +146,12 @@ def build_email_content(project, test_run, report):
         "ATTENTION": ("ATTENTION", "#b45309", "#fffbeb", "#fde68a"),
         "RÉUSSITE": ("RÉUSSITE", "#15803d", "#f0fdf4", "#bbf7d0"),
         "AUCUN TEST EXÉCUTÉ": ("AUCUN TEST", "#64748b", "#f8fafc", "#e2e8f0"),
+        "ANNULÉ": ("ANNULÉ", "#475569", "#f8fafc", "#e2e8f0"),
     }[verdict]
     v_text, v_color, v_bg, v_border = verdict_label
     v_icon = {"ÉCHEC": "&#10007;", "ATTENTION": "&#9888;",
-              "RÉUSSITE": "&#10004;", "AUCUN TEST EXÉCUTÉ": "&#8212;"}[verdict]
+              "RÉUSSITE": "&#10004;", "AUCUN TEST EXÉCUTÉ": "&#8212;",
+              "ANNULÉ": "&#8212;"}[verdict]
 
     if failed:
         intro = (f"Voici les résultats des tests : <b>{passed} test(s) réussi(s)</b> "

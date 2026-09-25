@@ -20,16 +20,17 @@
 
 {% set ns = namespace(done=0, total=results|length) %}
 {% for r in results %}{% if r.status not in ('', 'PENDING') %}{% set ns.done = ns.done + 1 %}{% endif %}{% endfor %}
+{% if progress %}{% set ns.done = progress[0] %}{% set ns.total = progress[1] %}{% endif %}
 <div class="card report-header">
     <div>
         <p><b>Projet :</b> {{ test.project_name }} &nbsp; <b>Type :</b> {{ test.run_type }} &nbsp; <b>Lancé par :</b> {{ test.launched_by }}</p>
         <p><b>Avancement :</b> {{ ns.done }} / {{ ns.total }} étapes validées</p>
     </div>
     <div class="report-score">
-        <div class="score-circle {{ 'score-good' if ns.done>0 and ns.done>=ns.total else ('score-mid' if ns.done>0 else 'score-bad') }}">
+        <div class="score-circle {{ 'score-good' if ns.total>0 and ns.done>=ns.total and results|selectattr('status','equalto','FAIL')|list|length==0 else ('score-mid' if ns.done>0 else 'score-bad') }}">
             {{ ((ns.done / ns.total * 100)|round(0)|int) if ns.total>0 else 0 }}%
         </div>
-        <span>Validé</span>
+        <span>{{ 'Validé' if results|selectattr('status','equalto','FAIL')|list|length==0 else 'Échecs' }}</span>
     </div>
 </div>
 
