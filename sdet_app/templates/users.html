@@ -31,7 +31,7 @@
                     {% if u.role == 'admin' %}
                     <span class="sev sev-critical" style="font-size:.72rem">Administrateur</span>
                     {% else %}
-                    <span class="badge badge-PASS" style="font-size:.72rem">QA</span>
+                    <span class="badge badge-PASS" style="font-size:.72rem">Technicien Analyste</span>
                     {% endif %}
                     {% if not u.is_active %}
                     <span class="badge" style="font-size:.65rem;background:#e2e8f0;color:#475569">Désactivé</span>
@@ -110,7 +110,7 @@
                 <div class="settings-row">
                     <label for="au_role">Rôle</label>
                     <select name="role" id="au_role">
-                        <option value="qa" selected>QA — exécute et analyse les tests</option>
+                        <option value="qa" selected>Technicien Analyste — exécute et analyse les tests</option>
                         <option value="admin">Administrateur — accès complet</option>
                     </select>
                 </div>
@@ -172,7 +172,7 @@
                 <div class="settings-row">
                     <label for="eu_role">Rôle</label>
                     <select name="role" id="eu_role">
-                        <option value="qa">QA — exécute et analyse les tests</option>
+                        <option value="qa">Technicien Analyste — exécute et analyse les tests</option>
                         <option value="admin">Administrateur — accès complet</option>
                     </select>
                 </div>
@@ -213,7 +213,7 @@
     window.openView = function(btn){
         document.getElementById('vv_name').textContent = btn.dataset.name || '—';
         document.getElementById('vv_email').textContent = btn.dataset.email || '—';
-        document.getElementById('vv_role').textContent = btn.dataset.role === 'admin' ? 'Administrateur' : 'QA';
+        document.getElementById('vv_role').textContent = btn.dataset.role === 'admin' ? 'Administrateur' : 'Technicien Analyste';
         document.getElementById('vv_created').textContent = btn.dataset.created || '—';
         openModal('viewUserModal');
     };

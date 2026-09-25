@@ -27,16 +27,22 @@
     {% if kind == "functionality" %}
     <h2>Fonctionnalité</h2>
     <form method="POST" action="{{ url_for('scenario_functionality_edit', pid=project.id, fid=func.id) }}">
-        <label for="name">Nom</label>
-        <input type="text" id="name" name="name" value="{{ func.name }}" required>
-        <label for="url">URL directe (optionnel — le générateur navigue vers cette URL)</label>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="name">Nom</label>
+                <input type="text" id="name" name="name" value="{{ func.name }}" required>
+            </div>
+            <div class="form-field">
+                <label for="path">Chemin de navigation <span class="text-muted text-small">(sous-dossiers)</span></label>
+                <input type="text" id="path" name="path" value="{{ func.path or '' }}"
+                       placeholder="Ex&nbsp;: Facturation > Contrats">
+            </div>
+        </div>
+        <span class="field-hint">Niveaux à traverser avant la fonctionnalité, séparés par &gt;.</span>
+        <label for="url">URL directe <span class="text-muted text-small">(optionnel — le générateur navigue vers cette URL)</span></label>
         <input type="text" id="url" name="url" value="{{ func.url or '' }}"
                placeholder="Ex&nbsp;: https://.../crm/clients">
         <span class="field-hint">Si renseignée, la génération et le scan naviguent directement vers cette adresse.</span>
-        <label for="path">Chemin de navigation (sous-dossiers, optionnel)</label>
-        <input type="text" id="path" name="path" value="{{ func.path or '' }}"
-               placeholder="Ex&nbsp;: Facturation > Contrats">
-        <span class="field-hint">Niveaux à traverser avant la fonctionnalité, séparés par &gt;.</span>
         <label for="description">Description <span class="text-muted text-small">(optionnel — les étapes sont gérées séparément)</span></label>
         <textarea id="description" name="description" rows="2" placeholder="Ex&nbsp;: Créer et valider une nouvelle catégorie">{{ func.description or '' }}</textarea>
         <div class="form-actions">
@@ -47,25 +53,38 @@
     {% else %}
     <h2>Étape</h2>
     <form method="POST" action="{{ url_for('scenario_step_edit', pid=project.id, sid=step.id) }}">
-        <label for="action_type">Action standard</label>
-        <select id="action_type" name="action_type">
-            <option value="">Libellé libre (texte)</option>
-            {% set atypes = {'NAVIGUER':'Naviguer','CLIQUEER':'Cliquer','REMPLIR':'Remplir','SELECTIONNER':'Sélectionner','COCHER':'Cocher','DECOCHER':'Décocher','RECHERCHER':'Rechercher','VERIFIER':'Vérifier','ATTENDRE':'Attendre','ECRAN':"Capture d'écran",'SELECTIONNER_LIGNE':'Sélectionner ligne'} %}
-            {% for key, label in atypes.items() %}
-            <option value="{{ key }}" {% if step.action_type == key %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
-        <label for="target">Cible <span class="text-muted text-small">(bouton, champ, URL…)</span></label>
-        <input type="text" id="target" name="target" value="{{ step.target or '' }}"
-               placeholder="Ex&nbsp;: Ajouter, Nom, /clients">
-        <label for="value">Valeur <span class="text-muted text-small">(si nécessaire)</span></label>
-        <input type="text" id="value" name="value" value="{{ step.value or '' }}"
-               placeholder="Ex&nbsp;: QA_TEST_2509">
-        <label for="expected">Résultat attendu <span class="text-muted text-small">(optionnel)</span></label>
-        <input type="text" id="expected" name="expected" value="{{ step.expected or '' }}"
-               placeholder="Ex&nbsp;: Élément créé, Page chargée">
-        <label for="description">Description de l'étape</label>
-        <textarea id="description" name="description" rows="3" required>{{ step.description }}</textarea>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="action_type">Action standard</label>
+                <select id="action_type" name="action_type" onchange="updateEditForm()">
+                    <option value="">Libellé libre (texte)</option>
+                    {% set atypes = {'NAVIGUER':'Naviguer','CLIQUEER':'Cliquer','REMPLIR':'Remplir','SELECTIONNER':'Sélectionner','COCHER':'Cocher','DECOCHER':'Décocher','RECHERCHER':'Rechercher','VERIFIER':'Vérifier','ATTENDRE':'Attendre','ECRAN':"Capture d'écran",'SELECTIONNER_LIGNE':'Sélectionner ligne'} %}
+                    {% for key, label in atypes.items() %}
+                    <option value="{{ key }}" {% if step.action_type == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field" id="target-field">
+                <label for="target">Cible <span class="text-muted text-small">(bouton, champ, URL…)</span></label>
+                <input type="text" id="target" name="target" value="{{ step.target or '' }}"
+                       placeholder="Ex&nbsp;: Ajouter, Nom, /clients">
+            </div>
+
+            <div class="form-field" id="value-field">
+                <label for="value">Valeur <span class="text-muted text-small">(si nécessaire)</span></label>
+                <input type="text" id="value" name="value" value="{{ step.value or '' }}"
+                       placeholder="Ex&nbsp;: QA_TEST_2509">
+            </div>
+            <div class="form-field">
+                <label for="expected">Résultat attendu <span class="text-muted text-small">(optionnel)</span></label>
+                <input type="text" id="expected" name="expected" value="{{ step.expected or '' }}"
+                       placeholder="Ex&nbsp;: Élément créé, Page chargée">
+            </div>
+        </div>
+        <div id="desc-field">
+            <label for="description">Description de l'étape</label>
+            <textarea id="description" name="description" rows="3">{{ step.description }}</textarea>
+        </div>
         <div class="form-actions">
             <a href="{{ url_for('project_scenarios', pid=project.id) }}" class="btn-secondary">Annuler</a>
             <button type="submit" class="btn-primary">Enregistrer</button>
@@ -73,4 +92,62 @@
     </form>
     {% endif %}
 </div>
+<script>
+const EDIT_STEP_FIELDS = {
+    '':['libelle'],
+    NAVIGUER:['target'],
+    CLIQUEER:['target'],
+    REMPLIR:['target','value','libelle'],
+    SELECTIONNER:['target','value'],
+    COCHER:['target'],
+    DECOCHER:['target'],
+    RECHERCHER:['target'],
+    VERIFIER:['target'],
+    ATTENDRE:['value'],
+    ECRAN:['target'],
+    SELECTIONNER_LIGNE:['target'],
+};
+function editShow(fid, field){
+    const fields = EDIT_STEP_FIELDS[fid] || [];
+    return fields.indexOf(field) !== -1;
+}
+function editDescribeAction(type, target, value){
+    if(!type) return target || value || '';
+    switch(type){
+        case 'NAVIGUER': return 'Naviguer vers ' + target;
+        case 'CLIQUEER': return 'Cliquer sur ' + target;
+        case 'REMPLIR': return 'Remplir le champ ' + target + (value ? ' avec ' + value : '');
+        case 'SELECTIONNER': return 'Sélectionner ' + target + (value ? ' avec ' + value : '');
+        case 'COCHER': return 'Cocher ' + target;
+        case 'DECOCHER': return 'Décocher ' + target;
+        case 'RECHERCHER': return 'Rechercher ' + target;
+        case 'VERIFIER': return 'Vérifier que ' + target;
+        case 'ATTENDRE': return 'Attendre ' + (value || '2000') + ' ms';
+        case 'ECRAN': return 'Capturer ' + (target || 'écran');
+        case 'SELECTIONNER_LIGNE': return 'Sélectionner la ligne ' + target;
+        default: return target || value || '';
+    }
+}
+function updateEditForm(){
+    const typeEl = document.getElementById('action_type');
+    if(!typeEl) return;
+    const type = typeEl.value;
+    function toggleField(id, visible){
+        const el = document.getElementById(id);
+        if(el) el.style.display = visible ? '' : 'none';
+    }
+    const targetEl = document.getElementById('target');
+    const valueEl = document.getElementById('value');
+    toggleField('target-field', editShow(type, 'target') || (targetEl && targetEl.value.trim() !== ''));
+    toggleField('value-field', editShow(type, 'value') || (valueEl && valueEl.value.trim() !== ''));
+    toggleField('desc-field', editShow(type, 'libelle'));
+    const descEl = document.getElementById('description');
+    if(!editShow(type, 'libelle') && descEl && !descEl.value.trim()){
+        const t = document.getElementById('target');
+        const v = document.getElementById('value');
+        descEl.value = editDescribeAction(type, t ? t.value : '', v ? v.value : '');
+    }
+}
+document.addEventListener('DOMContentLoaded', updateEditForm);
+</script>
 {% endblock %}

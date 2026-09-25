@@ -194,7 +194,8 @@
                         </summary>
                         <div class="fn-steps-panel">
                             <div class="step-form">
-                                <select name="action_type" id="step-type-{{ f.id }}" class="step-type-select">
+                                <select name="action_type" id="step-type-{{ f.id }}" class="step-type-select"
+                                        onchange="updateStepForm({{ f.id }})">
                                     <option value="">Libellé libre (texte)</option>
                                     <option value="NAVIGUER">Naviguer</option>
                                     <option value="CLIQUEER">Cliquer</option>
@@ -347,15 +348,71 @@ function pollGeneration(statusUrl, finishFail){
     setTimeout(tick, GENERATE_POLL_MS);
 }
 
+const STEP_FIELDS = {
+    '':['libelle'],
+    NAVIGUER:['target'],
+    CLIQUEER:['target'],
+    REMPLIR:['target','value','libelle'],
+    SELECTIONNER:['target','value'],
+    COCHER:['target'],
+    DECOCHER:['target'],
+    RECHERCHER:['target'],
+    VERIFIER:['target'],
+    ATTENDRE:['value'],
+    ECRAN:['target'],
+    SELECTIONNER_LIGNE:['target'],
+};
+const TARGET_PLACEHOLDERS = {
+    NAVIGUER: 'Cible (URL / chemin, ex : /clients)',
+    CLIQUEER: 'Cible (nom du bouton, ex : Ajouter) — pour une icône, son titre',
+    REMPLIR: 'Cible (nom du champ, ex : Nom)',
+    SELECTIONNER: 'Cible (nom du champ, ex : Statut)',
+    COCHER: 'Cible (nom de la case, ex : Actif)',
+    DECOCHER: 'Cible (nom de la case, ex : Actif)',
+    RECHERCHER: 'Cible (terme à chercher, ex : QA_CLIENT_2509)',
+    VERIFIER: 'Cible (élément à vérifier, ex : message de succès)',
+    ECRAN: 'Cible (nom de la capture, ex : etat_final)',
+    SELECTIONNER_LIGNE: 'Cible (contenu de la ligne, ex : Client Test)',
+};
+const VALUE_PLACEHOLDERS = {
+    REMPLIR: 'Valeur (texte à saisir, ex : QA_CLIENT_2509)',
+    SELECTIONNER: 'Valeur (option à choisir, ex : Actif)',
+    ATTENDRE: 'Valeur (durée en ms, ex : 2000)',
+};
+function stepShow(fid, field){
+    const fields = STEP_FIELDS[fid] || [];
+    return fields.indexOf(field) !== -1;
+}
+function updateStepForm(fid){
+    const typeEl = document.getElementById('step-type-' + fid);
+    if(!typeEl) return;
+    const type = typeEl.value;
+    const toggle = function(field, el){
+        if(el) el.style.display = stepShow(type, field) ? '' : 'none';
+    };
+    toggle('target', document.getElementById('step-target-' + fid));
+    toggle('value', document.getElementById('step-value-' + fid));
+    toggle('libelle', document.getElementById('step-input-' + fid));
+    const targetEl = document.getElementById('step-target-' + fid);
+    if(targetEl) targetEl.placeholder = TARGET_PLACEHOLDERS[type] || 'Cible (bouton, champ, URL…)';
+    const valueEl = document.getElementById('step-value-' + fid);
+    if(valueEl) valueEl.placeholder = VALUE_PLACEHOLDERS[type] || 'Valeur';
+}
+document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.step-type-select').forEach(function(el){
+        updateStepForm(parseInt(el.id.replace('step-type-', ''), 10));
+    });
+});
+
 function addStep(ev, url, inputId, typeId, targetId, valueId){
     const typeEl = typeId ? document.getElementById(typeId) : null;
     const targetEl = targetId ? document.getElementById(targetId) : null;
     const valueEl = valueId ? document.getElementById(valueId) : null;
+    const inputEl = document.getElementById(inputId);
     const type = typeEl ? typeEl.value : '';
-    const target = targetEl ? targetEl.value.trim() : '';
-    const value = valueEl ? valueEl.value.trim() : '';
-    let desc = document.getElementById(inputId).value.trim();
-
+    const target = (stepShow(type, 'target') && targetEl) ? targetEl.value.trim() : '';
+    const value = (stepShow(type, 'value') && valueEl) ? valueEl.value.trim() : '';
+    let desc = stepShow(type, 'libelle') ? inputEl.value.trim() : '';
     if(!desc){
         desc = describeAction(type, target, value);
     }
@@ -376,7 +433,7 @@ function describeAction(type, target, value){
     if(!type) return target || value || '';
     switch(type){
         case 'NAVIGUER': return 'Naviguer vers ' + target;
-        case 'CLIQUEER': return 'Cliquer sur ' + target;
+        case 'CLIQUEER': return 'Cliquer sur ' + target + (value ? ' (ligne ' + value + ')' : '');
         case 'REMPLIR': return 'Remplir le champ ' + target + (value ? ' avec ' + value : '');
         case 'SELECTIONNER': return 'Sélectionner ' + target + (value ? ' avec ' + value : '');
         case 'COCHER': return 'Cocher ' + target;

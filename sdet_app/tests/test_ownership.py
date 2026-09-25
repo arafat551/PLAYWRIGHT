@@ -1,21 +1,50 @@
-"""Tests for user ownership / multi-user isolation and the PDF report."""
-
+"""Tests for project ownership / multi-user isolation:
+- a QA can create projects and assign one or more QAs to them;
+- QAs only see the projects assigned to them;
+- admins manage global settings and users (QA excluded)."""
 
 def _login(client, email, pw):
     return client.post("/login", data={"email": email, "password": pw})
 
 
-def _make_project(client, name):
+def _uid(email):
     from sdet_app import database
+    return database.get_user_by_email(email).id
+
+
+def _make_project(client, name, assign=()):
+    """Create a project (as admin when assigning QAs) and optionally assign them."""
+    from sdet_app import database
+    if assign:
+        _login(client, "admin@example.com", "admin123")
     client.post("/projects/new", data={
         "name": name, "url": f"https://{name}.test", "email": "a@b.test",
         "password": "pw", "auth_type": "simple", "environment": "STAGING",
         "comments": ""}, follow_redirects=True)
     proj = [p for p in database.list_projects() if p["name"] == name]
-    return proj[0]["id"] if proj else None
+    pid = proj[0]["id"] if proj else None
+    if pid is not None and assign:
+        uids = [_uid(e) for e in assign]
+        client.post(f"/projects/{pid}/members", data={"grant": uids},
+                    follow_redirects=True)
+    return pid
 
 
-def test_regular_user_only_sees_own_projects(client, two_users):
+def test_qa_can_create_project(client, two_users):
+    alice, _ = two_users
+    _login(client, alice, "pwA")
+    r = client.post("/projects/new", data={
+        "name": "ProjetQA", "url": "https://qa.test", "email": "a@b.test",
+        "password": "pw", "auth_type": "simple", "environment": "STAGING",
+        "comments": ""}, follow_redirects=True)
+    assert "créé avec succès" in r.get_data(as_text=True).lower()
+    from sdet_app import database
+    proj = [p for p in database.list_projects() if p["name"] == "ProjetQA"]
+    assert len(proj) == 1
+    assert proj[0]["owner_id"] == _uid(alice)
+
+
+def test_qa_only_sees_assigned_projects(client, two_users):
     alice, bob = two_users
     _login(client, bob, "pwB")
     pid_b = _make_project(client, "ProjetBob")
@@ -61,6 +90,29 @@ def test_delete_restricted_to_owner_even_for_admin(client, two_users, _init_db):
     assert database.get_project(pid_b) is None
 
 
+def test_qa_can_manage_project_members(client, two_users):
+    alice, bob = two_users
+    pid = _make_project(client, "ProjetAcces", assign=(alice,))
+    _login(client, alice, "pwA")
+    body = client.get(f"/projects/{pid}/members").get_data(as_text=True)
+    assert "Accès au projet" in body
+    assert bob in body
+    client.post(f"/projects/{pid}/members", data={"grant": [_uid(bob)]},
+                follow_redirects=True)
+    from sdet_app import database
+    assert set(database.project_member_ids(pid)) == {_uid(bob)}
+
+
+def test_members_button_visible_for_all(client, two_users):
+    alice, _ = two_users
+    _make_project(client, "ProjetBtnAcces", assign=(alice,))
+    _login(client, alice, "pwA")
+    body = client.get("/projects").get_data(as_text=True)
+    assert "Gérer les accès" in body
+    _login(client, "admin@example.com", "admin123")
+    body = client.get("/projects").get_data(as_text=True)
+    assert "Gérer les accès" in body
+
 def test_dashboard_scoped_per_user(client, two_users):
     alice, bob = two_users
     _login(client, bob, "pwB")
@@ -81,7 +133,9 @@ def test_dashboard_vertical_chart_with_pagination(client, _init_db):
         _make_project(client, f"ProjetPag-{i}")
     body = client.get("/dashboard").get_data(as_text=True)
     assert "vbar-chart" in body
-    assert body.count('class="vbar-page"') == 2, \
+    total = len(_init_db.list_projects())
+    expected_pages = -(-total // 6)  # ceil : lots de 6 projets
+    assert body.count('class="vbar-page"') == expected_pages, \
         "le graphique doit être paginé par lots de 6 projets"
     assert 'class="vbar-grid-lines"' in body
 

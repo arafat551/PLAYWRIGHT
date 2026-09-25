@@ -72,6 +72,7 @@ def build_report(project, test_run, results, counters, duration):
         "warning": counters["warning"],
         "skipped": counters["skipped"],
         "success_pct": success_percent(counters),
+        "status": str(test_run.get("status") or ""),
         "modules": modules,
         "module_stats": module_stats(modules),
         "failures": failures(results),
@@ -322,6 +323,7 @@ h2{{font-size:1.15rem;font-weight:700;margin:1.4rem 0 .7rem}}
   <div>
     <p><b>Projet :</b> {report['project']} &nbsp; <b>Environnement :</b> {report['environment']} &nbsp; <b>Type :</b> {report['run_type']}</p>
     <p><b>Date :</b> {report['date']} &nbsp; <b>Lancé par :</b> {report['launched_by']} &nbsp; <b>Durée :</b> {report['duration']}</p>
+    {f'<p><b>Statut :</b> ' + report.get('status', '') + '</p>' if report.get('status') else ''}
     {url_line}
   </div>
   <div style="display:flex;flex-direction:column;align-items:center;gap:.4rem">

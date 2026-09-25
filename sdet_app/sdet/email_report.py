@@ -79,7 +79,9 @@ def build_email_content(project, test_run, report):
     skipped = report["skipped"]
     pct = report["success_pct"]
 
-    if failed:
+    if str(report.get("status", "")).lower() in ("cancelled", "canceled"):
+        verdict, verdict_color = "ANNULÉ", "#475569"
+    elif failed:
         verdict, verdict_color = "ÉCHEC", "#b91c1c"
     elif warning:
         verdict, verdict_color = "ATTENTION", "#b45309"

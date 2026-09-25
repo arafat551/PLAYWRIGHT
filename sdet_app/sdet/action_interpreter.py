@@ -100,6 +100,26 @@ class ActionInterpreter:
     def _exec_click(self, target, value):
         if not target:
             return "FAIL", "Cible non spécifiée"
+        # Valeur = ligne cible dans une table : on repère la ligne contenant
+        # ce texte, puis on clique le bouton (nom / titre) dans cette ligne.
+        if value:
+            self.last_fill_value = value.strip()
+            try:
+                if self._click_by_row_action(target):
+                    _log(f"click OK: '{target}' sur la ligne '{value}'")
+                    return "PASS", f"'{target}' cliqué (ligne '{value}')"
+            except Exception:
+                pass
+        # When a row identifier is remembered (Remplir / Sélectionner ligne),
+        # prefer clicking inside that exact table row instead of the first
+        # matching element on the page (data tables repeat icon buttons).
+        if self.last_fill_value:
+            try:
+                if self._click_by_row_action(target):
+                    _log(f"click OK: '{target}' via row-action")
+                    return "PASS", f"'{target}' cliqué"
+            except Exception:
+                pass
         # Try multiple strategies to find and click the element
         strategies = [
             self._click_by_text,
@@ -177,46 +197,64 @@ class ActionInterpreter:
         return False
 
     def _click_by_row_action(self, text):
-        """Click an action button (edit/delete/view) in a table row."""
+        """Click an action button located inside a table row (typical of data
+        tables). The right row is the one containing the last known value
+        (preceding Remplir / Sélectionner ligne). The control is matched by
+        its title, aria-label, class or visible text — any button name."""
         text_lower = text.lower()
-        _ROW_KEYS = {
-            "visualiser": ("visualis", "voir", "affiche", "eye", "show", "view"),
-            "modifier": ("modifier", "modif", "edit", "pencil", "pen"),
-            "supprimer": ("supprimer", "delete", "remove", "trash", "effacer"),
-        }
-        action_keys = None
-        for group, keys in _ROW_KEYS.items():
-            if any(k in text_lower for k in keys):
-                action_keys = keys
-                break
-        if not action_keys:
+        if not text_lower:
             return False
-        # Find the right row
         rows = self.page.query_selector_all("table tbody tr")
-        target_row = None
+        if not rows:
+            return False
         wanted = (self.last_fill_value or "").strip().lower()
+
+        def _matches(el, by_text=False):
+            if by_text:
+                txt = (el.inner_text() or "").strip().lower()
+                return bool(txt) and text_lower in txt
+            hay = ((el.get_attribute("class") or "") + " " +
+                   (el.get_attribute("title") or "") + " " +
+                   (el.get_attribute("aria-label") or "")).lower()
+            return text_lower in hay
+
+        def _click_in_row(tr):
+            try:
+                candidates = tr.query_selector_all("a, button, i, span, img")
+            except Exception:
+                candidates = []
+            for el in candidates:
+                try:
+                    if _matches(el):
+                        el.click(timeout=4000)
+                        self._after_click()
+                        return True
+                except Exception:
+                    continue
+            for el in tr.query_selector_all("a, button"):
+                try:
+                    if _matches(el, by_text=True):
+                        el.click(timeout=4000)
+                        self._after_click()
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        if wanted:
+            for tr in rows:
+                try:
+                    if wanted in (tr.inner_text() or "").lower():
+                        if _click_in_row(tr):
+                            return True
+                except Exception:
+                    continue
+            return False
+        # No remembered row: keep the keyword row-action compatibility (a
+        # row containing such a control is found and clicked).
         for tr in rows:
             try:
-                txt = (tr.inner_text() or "").lower()
-                if wanted and wanted in txt:
-                    target_row = tr
-                    break
-            except Exception:
-                continue
-        if not target_row and rows:
-            target_row = rows[0]
-        if not target_row:
-            return False
-        # Click the action button in the row
-        els = target_row.query_selector_all("a, button, i, span")
-        for el in els:
-            try:
-                hay = ((el.get_attribute("class") or "") + " " +
-                       (el.get_attribute("title") or "") + " " +
-                       (el.get_attribute("aria-label") or "")).lower()
-                if any(k in hay for k in action_keys):
-                    el.click(timeout=4000)
-                    self._after_click()
+                if _click_in_row(tr):
                     return True
             except Exception:
                 continue
@@ -703,7 +741,9 @@ class ActionInterpreter:
             self.page.wait_for_load_state("domcontentloaded", timeout=8000)
             self.page.wait_for_timeout(500)
             self.page.screenshot(path=fn)
-        except Exception:
+        except Exception as e:
+            if "closed" in str(e).lower():
+                return "FAIL", f"Erreur: {e}"
             rel = ""
         return "PASS", f"Capture '{name}' prise"
 
