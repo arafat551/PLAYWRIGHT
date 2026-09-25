@@ -1713,9 +1713,10 @@ def _project_form():
         "url": request.form.get("url", "").strip(),
         "email": request.form.get("email", "").strip(),
         "password": request.form.get("password", ""),
-        "auth_type": request.form.get("auth_type", "simple"),
+        "auth_type": request.form.get("auth_type", "none"),
         "environment": request.form.get("environment", "STAGING"),
         "comments": request.form.get("comments", "").strip(),
+        "report_recipients": request.form.get("report_recipients", "").strip(),
     }
 
 
