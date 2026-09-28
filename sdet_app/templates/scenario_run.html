@@ -109,7 +109,9 @@
     <div class="run-actions" style="justify-content:space-between">
         <span class="text-muted text-small">À la fin, générez le rapport récapitulatif par module / fonctionnalité / étape.</span>
         <div class="run-actions">
-            <a href="{{ url_for('test_cancel', tid=test.id) }}" class="btn-secondary">Abandonner</a>
+            <form method="POST" action="{{ url_for('test_cancel', tid=test.id) }}" onsubmit="return confirm('Abandonner ce test ? Un rapport sera généré avec l\'état actuel.')">
+                <button class="btn-secondary" type="submit">Abandonner</button>
+            </form>
             <form method="POST" action="{{ url_for('scenario_finish', tid=test.id) }}">
                 <button class="btn-primary" type="submit">Terminer et générer le rapport</button>
             </form>

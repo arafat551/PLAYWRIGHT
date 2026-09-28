@@ -1,4 +1,6 @@
 import os
+import time
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -67,17 +69,28 @@ env = Config()
 # ---------------------------------------------------------------------------
 
 _SETTINGS = None
+_SETTINGS_LOADED_AT = 0.0
+# En production plusieurs process (gunicorn) partagent la même base : un
+# enregistrement de paramètres dans un worker ne doit pas laisser les autres
+# process sur un cache périmé (sinon les identifiants SMTP restent invisibles).
+_SETTINGS_TTL = 30.0
+
+
+def _load_settings_cache():
+    global _SETTINGS, _SETTINGS_LOADED_AT
+    try:
+        from . import database as _db
+        _SETTINGS = _db.load_settings()
+    except Exception:
+        _SETTINGS = {}
+    _SETTINGS_LOADED_AT = time.monotonic()
 
 
 def get_setting(name, default=None):
     """Return a DB-stored setting, falling back to the supplied default."""
     global _SETTINGS
-    if _SETTINGS is None:
-        try:
-            from . import database as _db
-            _SETTINGS = _db.load_settings()
-        except Exception:
-            _SETTINGS = {}
+    if _SETTINGS is None or time.monotonic() - _SETTINGS_LOADED_AT > _SETTINGS_TTL:
+        _load_settings_cache()
     raw = _SETTINGS.get(name)
     if raw is None or raw == "":
         return default
@@ -86,23 +99,25 @@ def get_setting(name, default=None):
 
 def apply_settings(values):
     """Persist UI-edited settings and refresh the in-memory cache."""
-    global _SETTINGS
+    global _SETTINGS, _SETTINGS_LOADED_AT
     from . import database as _db
     data = {str(k): str(v) for k, v in values.items()}
     _db.save_settings(data)
     if _SETTINGS is None:
         _SETTINGS = {}
     _SETTINGS.update(data)
+    _SETTINGS_LOADED_AT = time.monotonic()
 
 
 def reset_settings(keys):
     """Remove specific settings, restoring .env defaults."""
-    global _SETTINGS
+    global _SETTINGS, _SETTINGS_LOADED_AT
     from . import database as _db
     _db.delete_settings([str(k) for k in keys])
     if _SETTINGS is not None:
         for k in keys:
             _SETTINGS.pop(str(k), None)
+    _SETTINGS_LOADED_AT = time.monotonic()
 
 
 def setting_int(name, default):

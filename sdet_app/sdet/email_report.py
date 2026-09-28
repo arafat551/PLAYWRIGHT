@@ -214,19 +214,30 @@ def build_email_content(project, test_run, report):
 def send_run_report(tid):
     """Envoyer le rapport d'un scénario terminé aux destinataires configurés.
 
+    Destinataires prioritaires : ceux du projet lui-même (« Destinataires du
+    rapport » à la création / modification du projet). À défaut, le
+    destinataire global des Paramètres.
     No-op si l'envoi est désactivé ou si aucun destinataire n'est renseigné.
     Returns (sent, recipients)."""
     enabled = setting_bool("report_email_enabled", False)
     if not enabled:
         return 0, []
-    recipients = [r.strip() for r in re.split(r"[,;]", get_setting("report_email_recipient", "") or "")
-                  if r.strip()]
-    if not recipients:
-        return 0, []
 
     test = database.get_test_run(tid)
     if not test:
         return 0, []
+
+    project_recipients = (getattr(test, "report_recipients", "") or "").strip()
+    recipients = [r.strip() for r in re.split(r"[,;]", project_recipients) if r.strip()]
+    if not recipients:
+        recipients = [r.strip()
+                      for r in re.split(r"[,;]", get_setting("report_email_recipient", "") or "")
+                      if r.strip()]
+    if not recipients:
+        print(f"[EMAIL] run {tid}: aucun destinataire (projet et Paramètres vides)",
+              flush=True)
+        return 0, []
+
     results = [dict(r) if isinstance(r, dict) else r.__dict__
                for r in database.list_results(tid)]
     counters = reporter.counters_from_results(results)

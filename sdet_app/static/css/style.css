@@ -2534,6 +2534,7 @@ main.with-sidebar, .charts-grid > *, .detail-grid > *, .stats-grid > *, .stats-i
   text-decoration: none;
 }
 .action-btn:hover { background: #f1f5f9; }
+.action-btn.icon-only { padding: 0.35rem; line-height: 0; }
 .action-btn.view { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
 .action-btn.view:hover { background: #dbeafe; }
 .action-btn.edit { color: #a16207; border-color: #fde047; background: #fefce8; }

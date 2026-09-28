@@ -37,40 +37,43 @@
                     <span class="badge" style="font-size:.65rem;background:#e2e8f0;color:#475569">Désactivé</span>
                     {% endif %}
                 </td>
-                <td class="text-muted text-small">{{ u.created_at[:16] if u.created_at else '—' }}</td>
+                <td class="text-muted text-small">{{ u.created_at | dt_fr_short }}</td>
                 <td>
                     <div class="action-btns">
-                        <button type="button" class="action-btn view" title="Afficher le détail"
+                        <button type="button" class="action-btn view icon-only" title="Visualiser" aria-label="Visualiser"
                                 data-name="{{ u.full_name or '' }}"
                                 data-email="{{ u.email }}"
                                 data-role="{{ u.role }}"
-                                data-created="{{ u.created_at[:16] if u.created_at else '—' }}"
+                                data-created="{{ u.created_at | dt_fr_short }}"
                                 data-active="{{ 'Oui' if u.is_active else 'Non' }}"
                                 onclick="openView(this)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            Visualiser
                         </button>
-                        <button type="button" class="action-btn edit" title="Modifier"
+                        <button type="button" class="action-btn edit icon-only" title="Modifier" aria-label="Modifier"
                                 data-uid="{{ u.id }}"
                                 data-name="{{ u.full_name or '' }}"
                                 data-email="{{ u.email }}"
                                 data-role="{{ u.role }}"
                                 onclick="openEdit(this)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
-                            Modifier
                         </button>
                         {% if u.id != session.user_id and u.is_active %}
                         <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline" onsubmit="return confirm('Désactiver ce compte ? Il ne pourra plus se connecter.')">
-                            <button type="submit" class="action-btn danger" title="Désactiver">
+                            <button type="submit" class="action-btn danger icon-only" title="Désactiver" aria-label="Désactiver">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
-                                Désactiver
                             </button>
                         </form>
                         {% elif u.id != session.user_id and not u.is_active %}
                         <form method="POST" action="{{ url_for('user_toggle_active', uid=u.id) }}" style="display:inline">
-                            <button type="submit" class="action-btn success" title="Réactiver">
+                            <button type="submit" class="action-btn success icon-only" title="Réactiver" aria-label="Réactiver">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M6 12h12"/></svg>
-                                Réactiver
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% if u.id != session.user_id %}
+                        <form method="POST" action="{{ url_for('user_delete', uid=u.id) }}" style="display:inline" onsubmit="return confirm('Supprimer définitivement ce compte et tous ses projets ? Cette action est irréversible.')">
+                            <button type="submit" class="action-btn danger icon-only" title="Supprimer" aria-label="Supprimer">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                             </button>
                         </form>
                         {% endif %}

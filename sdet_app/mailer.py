@@ -49,6 +49,9 @@ def send_email(to_email, subject, body_html, body_text=None, attachments=None):
 
     host, port, user, pwd, sender, secure = _settings()
     if not (host and user and pwd):
+        missing = [n for n, v in (("smtp_user", user), ("smtp_password", pwd)) if not v]
+        print(f"[MAIL] vers {to_email} — envoi impossible, paramètre(s) SMTP non "
+              f"renseigné(s) dans Paramètres : {', '.join(missing)}", flush=True)
         return False
 
     msg = EmailMessage()
@@ -78,7 +81,9 @@ def send_email(to_email, subject, body_html, body_text=None, attachments=None):
                     smtp.login(user, pwd)
                 smtp.send_message(msg)
         return True
-    except Exception:
+    except Exception as exc:
         import traceback
+        print(f"[MAIL] envoi SMTP échoué vers {to_email} via {host}:{port} — {exc}",
+              flush=True)
         traceback.print_exc()
         return False

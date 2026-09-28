@@ -41,10 +41,34 @@ def test_users_page_has_actions_and_modal(client, two_users):
     body = client.get("/users").get_data(as_text=True)
     assert "Ajouter un utilisateur" in body
     assert "addUserModal" in body
-    assert "Visualiser" in body
-    assert "Modifier" in body
-    assert "Désactiver" in body
+    assert 'aria-label="Visualiser"' in body
+    assert 'aria-label="Modifier"' in body
+    assert 'aria-label="Désactiver"' in body
+    assert 'aria-label="Supprimer"' in body
+    assert "icon-only" in body
     assert "openModal('addUserModal')" in body
+
+
+def test_delete_user_removes_account_and_guards(client, _init_db):
+    from sdet_app import database
+    uid = database.create_user("delete-me@x.test", "pw", "À supprimer", "qa")
+    pid = database.create_project(
+        {"name": "ProjetDuSupprime", "url": "https://del-me.test",
+         "email": "a@b.test", "password": "pw", "auth_type": "simple",
+         "environment": "STAGING", "comments": ""}, owner_id=uid, encrypt=lambda v: v)
+    _login(client, "admin@example.com", "admin123")
+    headers = {"X-Requested-With": "fetch"}
+    r = client.post(f"/users/{uid}/delete", headers=headers)
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    assert database.get_user("delete-me@x.test") is None
+    assert database.get_project(pid) is None, \
+        "les projets de l'utilisateur supprimé doivent être effacés"
+    # on ne peut pas supprimer son propre compte
+    admin = database.get_user_by_id(1)
+    r = client.post(f"/users/{admin.id}/delete", headers=headers)
+    assert r.status_code == 400
+    assert "votre propre compte" in r.get_json()["error"]
+    assert database.get_user("admin@example.com") is not None
 
 
 def test_edit_user_json_and_last_admin_guard(client, _init_db):

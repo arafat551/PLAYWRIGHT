@@ -344,7 +344,14 @@ def create_user(email, password, full_name="", role="qa"):
 
 
 def delete_user(uid):
+    """Remove a user account and every project they own. Runs, results,
+    pages, actions, modules and schedulings of those projects are removed
+    through FK cascade. Runs owned on other projects are detached so that
+    shared history stays visible."""
     db = get_connection()
+    db.execute("DELETE FROM projects WHERE owner_id=?", (uid,))
+    db.execute("UPDATE test_runs SET owner_id=NULL WHERE owner_id=?", (uid,))
+    db.execute("DELETE FROM project_members WHERE user_id=?", (uid,))
     db.execute("DELETE FROM users WHERE id=?", (uid,))
     db.commit()
     db.close()

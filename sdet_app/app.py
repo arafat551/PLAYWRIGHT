@@ -1680,11 +1680,30 @@ def reset_password(token):
 @app.route("/users/<int:uid>/delete", methods=["POST"])
 @admin_required
 def user_delete(uid):
+    want_json = (request.headers.get("X-Requested-With") == "fetch"
+                 or request.headers.get("Accept", "").startswith("application/json"))
+    target = database.get_user_by_id(uid)
+    if not target:
+        if want_json:
+            return jsonify({"ok": False, "error": "Utilisateur introuvable"}), 404
+        flash("Utilisateur introuvable", "error")
+        return redirect(url_for("users"))
     if uid == session.get("user_id"):
-        flash("Vous ne pouvez pas supprimer votre propre compte", "error")
+        msg = "Impossible de supprimer votre propre compte"
+        if want_json:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg, "error")
+        return redirect(url_for("users"))
+    if getattr(target, "role") == "admin" and database.count_admins() <= 1:
+        msg = "Impossible de supprimer le dernier administrateur"
+        if want_json:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg, "error")
         return redirect(url_for("users"))
     database.delete_user(uid)
-    flash("Utilisateur supprimé", "success")
+    if want_json:
+        return jsonify({"ok": True})
+    flash(f"Utilisateur {target.email} supprimé", "success")
     return redirect(url_for("users"))
 
 

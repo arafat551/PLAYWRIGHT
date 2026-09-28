@@ -201,6 +201,32 @@ def test_send_run_report_sends_pdf_to_recipients(_init_db, monkeypatch):
     _clear_email_settings()
 
 
+def test_send_run_report_prefers_project_recipients(_init_db, monkeypatch):
+    """Regression: les destinataires saisis sur le projet doivent être
+    utilisés, sinon aucun rapport n'est envoyé quand le champ global
+    des Paramètres est vide."""
+    _configure(report_email_enabled="1", report_email_recipient="")
+    from sdet_app.models import TestResult
+
+    class _Test(_FakeTest):
+        report_recipients = "chef@x.test, lead@y.test"
+
+    monkeypatch.setattr(database, "get_test_run", lambda tid: _Test())
+    monkeypatch.setattr(database, "list_results",
+                        lambda tid: [TestResult(id=1, **r) for r in _FAKE_RESULTS])
+    sent_mails = []
+    monkeypatch.setattr(mailer, "send_email",
+                        lambda *a, **k: sent_mails.append((a, k)) or True)
+    monkeypatch.setattr(email_report, "render_report_pdf",
+                        lambda html: b"%PDF-1.4 fake")
+
+    sent, recipients = email_report.send_run_report(41)
+    assert sent == 2
+    assert recipients == ["chef@x.test", "lead@y.test"]
+    assert [m[0][0] for m in sent_mails] == ["chef@x.test", "lead@y.test"]
+    _clear_email_settings()
+
+
 def test_settings_ui_saves_smtp_and_email_fields(client, _init_db):
     client.post("/login", data={"email": "admin@example.com", "password": "admin123"})
     r = client.post("/settings", data={
