@@ -1,3 +1,6 @@
+# Python 3.9+ requis. Ne pas utiliser une syntaxe plus recente que Python 3.11 :
+# le serveur de production tourne sur une version anterieure a 3.12.
+# Voir la section "Version Python requise" du README.
 flask==3.1.1
 python-dotenv==1.1.0
 openai==1.93.0

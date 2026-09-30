@@ -98,14 +98,65 @@ python -m playwright install chromium
 python sdet_app/run.py          # http://localhost:5000
 ```
 
+## Version Python requise
+
+**Minimum : Python 3.9. Ne pas utiliser une syntaxe plus récente que Python 3.11**
+sur le code applicatif — le serveur de production tourne sur une version antérieure
+à 3.12, alors que le poste de développement peut être plus récent.
+
+Le piège principal : un f-string non triple-quoté qui s'étale sur plusieurs lignes.
+Avant Python 3.12 (PEP 701) le tokenizer lit le f-string entier comme un seul jeton,
+donc **un saut de ligne à l'intérieur même d'une expression `{...}` provoque un
+`SyntaxError`**. Ce code est valide sur le poste de dev, les tests passent, et le
+serveur plante au démarrage.
+
+```python
+# INVALIDE avant Python 3.12
+f'{mailer.info_note("Changez ce mot de passe "
+                   f"des votre premiere connexion.", "warning")}'
+
+# VALIDE partout
+note = mailer.info_note(
+    "Changez ce mot de passe "
+    "des votre premiere connexion.", "warning")
+contenu = f'<p>Bonjour</p>{note}'
+```
+
+`sdet_app/tests/test_python_compat.py` vérifie cela automatiquement (ainsi que la
+syntaxe PEP 695). Il fait partie de la suite standard : **un push qui l'ignore ne
+doit pas être déployé.**
+
 ## Tests
 
 ```bash
-python -m pytest -q              # 28 tests (auth, 2FA/OTP, classification, planner, report)
+python -m pytest -q              # 220 tests (auth, 2FA/OTP, classification, planner, report, compat Python)
 ```
 
 Les tests ne touchent pas la base réelle : `conftest.py` redirige
 `config.env.DATABASE_PATH` vers une base de test isolée.
+
+## Déploiement
+
+Le serveur de production et le poste de dev doivent rester sur le même commit.
+
+```bash
+# poste de dev
+git add -A
+git commit -m "..."
+git push origin staging
+
+# serveur
+cd ~/PLAYWRIGHT
+git fetch origin
+git reset --hard origin/main
+pkill -f gunicorn
+nohup python3 -m gunicorn -w 1 -b 127.0.0.1:5000 sdet_app.app:app > gunicorn.log 2>&1 &
+```
+
+Ne jamais utiliser `git push --force` : cela rend le dépôt local du serveur
+divergent et oblige à un `reset` manuel. Les fichiers SQLite (`*.db`, `*.db-wal`,
+`*.db-shm`) sont ignorés par Git et ne doivent jamais être commités — ils changent à
+chaque exécution et provoquent des conflits impossibles à fusionner.
 
 ## Sécurité
 
