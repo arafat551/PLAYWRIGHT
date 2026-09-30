@@ -1540,6 +1540,10 @@ def _notify_new_user(to_email, password, name=""):
         f"Mot de passe temporaire : {password}\n"
         f"Changez-le dès votre première connexion depuis Mon profil.")
     login_url = request.host_url.rstrip("/")
+    note_pw = mailer.info_note(
+        "Pour des raisons de sécurité, changez ce mot de passe dès votre "
+        "première connexion depuis la page <b>Mon profil</b>.", "warning")
+    btn_login = mailer.action_button("Accéder à la plateforme", login_url)
     content = (
         f'<p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">Bonjour {name},</p>'
         f'<p style="margin:0 0 4px;">Un compte a été créé pour vous sur la plateforme '
@@ -1562,9 +1566,8 @@ def _notify_new_user(to_email, password, name=""):
         f'color:#b45309;">{password}</td>'
         f'</tr>'
         f'</table>'
-        f'{mailer.info_note("Pour des raisons de sécurité, changez ce mot de passe dès votre "
-                           f"première connexion depuis la page <b>Mon profil</b>.", "warning")}'
-        f'{mailer.action_button("Accéder à la plateforme", login_url)}'
+        f'{note_pw}'
+        f'{btn_login}'
         f'<p style="font-size:11px;color:#94a3b8;margin:12px 0 0;border-top:1px solid #f1f5f9;'
         f'padding-top:10px;text-align:center;">Ces identifiants sont personnels et confidentiels — '
         f'ne les partagez pas.</p>')
