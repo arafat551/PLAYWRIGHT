@@ -14,6 +14,9 @@ env/
 *.db
 *.sqlite3
 *.sqlite
+*.db-shm
+*.db-wal
+*.db-journal
 
 # Generated artifacts
 sdet_app/reports/
