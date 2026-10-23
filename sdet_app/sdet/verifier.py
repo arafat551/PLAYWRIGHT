@@ -5,7 +5,7 @@ Rule: a successful CLICK is NEVER a PASS. PASS requires observable proof
 
 Heuristics are always computed. OpenAI may refine only ambiguous cases.
 """
-from ..config import env
+from ..config import env 
 
 SUCCESS_HINTS = ("succes", "success", "créé", "cree", "enregistré", "enregistre",
                  "ajouté", "ajoute", "modifié", "modifie", "bienvenue", "merci",
